@@ -1,5 +1,5 @@
 [package]
-name = "RustNES"
+name = "rust_nes"
 version = "0.1.0"
 authors = ["Deven Wadhwa <wadhwadeven@gmail.com>"]
 edition = "2018"
