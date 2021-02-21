@@ -1,15 +1,15 @@
-use crate::olc6502::*;
+use crate::cpu::*;
 
 pub struct Bus {
-    pub cpu: Olc6502,
+    pub cpu: Cpu,
     pub ram: [u8; 64 * 1024],
 }
 
 impl Bus {
     pub unsafe fn new() -> Bus {
-        let mut cpu = Olc6502::new();
+        let mut cpu = Cpu::new();
         let mut b = Bus {
-            cpu: Olc6502::new(),
+            cpu: Cpu::new(),
             ram: [0; 64 * 1024],
         };
         cpu.connect_bus(&mut b);

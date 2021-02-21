@@ -1,5 +1,5 @@
 mod bus;
-mod olc6502;
+mod cpu;
 use bus::*;
 
 fn main() {
