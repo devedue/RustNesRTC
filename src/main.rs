@@ -1,14 +1,25 @@
+#![feature(try_trait)]
+#![allow(dead_code)]
+#![allow(unused)]
+#![feature(once_cell)]
+#![feature(new_uninit)]
+#![feature(get_mut_unchecked)]
+
 mod bus;
+mod cartridge;
 mod cpu;
-use bus::*;
+mod mapper;
+mod mapper_000;
+mod nes;
+mod ppu;
+use crate::bus::Bus;
+use nes::*;
+use std::fs::File;
+use pge::PGE;
 
 fn main() {
-    unsafe {
-        println!("Hello, world!");
-        let mut b = Bus::new();
-        b.write(0, 5);
-        println!("{}", b.read(0, false));
-        b.write(0, 6);
-        println!("{}", b.read(0, false));
-    }
+    
+    let mut nes = Nes::new();
+    let mut pge = PGE::construct("Demo Part #3", 780, 480, 2, 2);
+    pge.start(&mut nes);
 }
