@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 pub struct Nes {
-    pub bus: Rc<RefCell<Bus>>,
+    pub cpu: Cpu,
     pub cart: Rc<RefCell<Cartridge>>,
     emulation_run: bool,
     residual_time: f32,
@@ -18,19 +18,18 @@ pub struct Nes {
 
 impl State for Nes {
     fn on_user_create(&mut self) -> bool {
-        self.bus = Rc::new(RefCell::new(Bus::new()));
+        self.cpu = Cpu::new();
         self.cart = Rc::new(RefCell::new(Cartridge::new("nestest.nes")));
-        self.bus.borrow_mut().cpu.connect_bus(self.bus.clone());
-        self.bus.borrow_mut().insert_cartridge(self.cart.clone());
-        self.bus.borrow_mut().reset();
+        self.cpu.bus.insert_cartridge(self.cart.clone());
+        self.cpu.reset();
 
         return true;
     }
     // fn on_user_destroy(&mut self) -> bool {
     //     return true;
     // }
+
     fn on_user_update(&mut self, engine: &mut PGE, elapsed: f32) -> bool {
-        let mut bus = self.bus.borrow_mut();
         engine.clear(&DARK_BLUE);
 
         if self.emulation_run {
@@ -38,37 +37,37 @@ impl State for Nes {
                 self.residual_time = self.residual_time - elapsed;
             } else {
                 self.residual_time = self.residual_time + (1.0 / 60.0) - elapsed;
-                bus.clock();
-                while (!bus.ppu.frame_complete) {
-                    bus.clock();
+                self.clock();
+                while (!self.cpu.bus.ppu.frame_complete) {
+                    self.clock();
                 }
-                bus.ppu.frame_complete = false;
+                self.cpu.bus.ppu.frame_complete = false;
             }
         } else {
             if (engine.get_key(Key::C).pressed) {
-                bus.clock();
-                while (!bus.cpu.is_complete()) {
-                    bus.clock();
+                self.clock();
+                while (!self.cpu.is_complete()) {
+                    self.clock();
                 }
-                bus.clock();
-                while (bus.cpu.is_complete()) {
-                    bus.clock();
+                self.clock();
+                while (self.cpu.is_complete()) {
+                    self.clock();
                 }
             }
 
             // Emulate one whole frame
             if (engine.get_key(Key::F).pressed) {
                 // Clock enough times to draw a single frame
-                bus.clock();
-                while (!bus.ppu.frame_complete) {
-                    bus.clock();
+                self.clock();
+                while (!self.cpu.bus.ppu.frame_complete) {
+                    self.clock();
                 }
-                bus.clock();
-                while (!bus.cpu.is_complete()) {
-                    bus.clock();
+                self.clock();
+                while (!self.cpu.is_complete()) {
+                    self.clock();
                 }
 
-                bus.ppu.frame_complete = false;
+                self.cpu.bus.ppu.frame_complete = false;
             }
         }
 
@@ -76,16 +75,14 @@ impl State for Nes {
             self.emulation_run = !self.emulation_run;
         }
         if (engine.get_key(Key::R).pressed) {
-            bus.reset();
+            self.cpu.reset();
         }
-
-        drop(bus);
 
         self.draw_cpu(engine, 516, 2);
 
-        // self.draw_ram(engine, 516, 72, 0, 10, 10);
+        self.draw_ram(engine, 516, 72, 0, 10, 10);
 
-        engine.draw_sprite(0, 0, &self.bus.borrow().ppu.spr_screen, 2);
+        engine.draw_sprite(0, 0, &self.cpu.bus.ppu.spr_screen, 2);
         return true;
     }
 }
@@ -93,11 +90,18 @@ impl State for Nes {
 impl Nes {
     pub fn new() -> Self {
         return Nes {
-            bus: Rc::new(RefCell::new(Bus::empty())),
+            cpu: Cpu::new(),
             cart: Rc::new(RefCell::new(Cartridge::default())),
-            emulation_run: true,
+            emulation_run: false,
             residual_time: 0.0,
         };
+    }
+
+    fn clock(&mut self) {
+        let ppu_count = self.cpu.bus.ppu.clock();
+        if (ppu_count % 3 == 0) {
+            self.cpu.clock();
+        }
     }
 
     fn hex(&self, n: u16) -> String {
@@ -114,12 +118,7 @@ impl Nes {
                 drawstring = format!(
                     "{} {}",
                     drawstring,
-                    self.hex(
-                        self.bus
-                            .borrow_mut()
-                            .cpu_read(address as usize, false)
-                            .into()
-                    )
+                    self.hex(self.cpu.read(address, false).into())
                 );
                 address = address + (1 as u16);
             }
@@ -129,8 +128,7 @@ impl Nes {
     }
 
     fn get_flag_color(&self, flag: FLAGS6502) -> &Pixel {
-        let cpu = &self.bus.borrow().cpu;
-        if (cpu.get_flag(flag) > 0) {
+        if (self.cpu.get_flag(flag) > 0) {
             return &GREEN;
         } else {
             return &RED;
@@ -138,7 +136,6 @@ impl Nes {
     }
 
     fn draw_cpu(&self, engine: &mut PGE, x: i32, y: i32) {
-        let cpu = &self.bus.borrow().cpu;
         // let random = rand::random::<u16>();
         let st = "STATUS: ";
         engine.draw_string(x, y, &st.to_owned(), &WHITE, 1);
@@ -153,35 +150,35 @@ impl Nes {
         engine.draw_string(
             x,
             y + 10,
-            String::as_str(&format!("{},{}", "PC: $", self.hex(cpu.pc))),
+            String::as_str(&format!("{},{}", "PC: $", self.hex(self.cpu.pc))),
             &WHITE,
             1,
         );
         engine.draw_string(
             x,
             y + 20,
-            String::as_str(&format!("A: ${} [{}]", self.hex(cpu.a.into()), cpu.a)),
+            String::as_str(&format!("A: ${} [{}]", self.hex(self.cpu.a.into()), self.cpu.a)),
             &WHITE,
             1,
         );
         engine.draw_string(
             x,
             y + 30,
-            String::as_str(&format!("X: ${} [{}]", self.hex(cpu.x.into()), cpu.x)),
+            String::as_str(&format!("X: ${} [{}]", self.hex(self.cpu.x.into()), self.cpu.x)),
             &WHITE,
             1,
         );
         engine.draw_string(
             x,
             y + 40,
-            String::as_str(&format!("Y: ${} [{}]", self.hex(cpu.y.into()), cpu.y)),
+            String::as_str(&format!("Y: ${} [{}]", self.hex(self.cpu.y.into()), self.cpu.y)),
             &WHITE,
             1,
         );
         engine.draw_string(
             x,
             y + 50,
-            String::as_str(&format!("Stack P: $[{}]", self.hex(cpu.stkp.into()))),
+            String::as_str(&format!("Stack P: $[{}]", self.hex(self.cpu.stkp.into()))),
             &WHITE,
             1,
         );

@@ -38,7 +38,7 @@ impl Instruction {
 }
 
 pub struct Cpu {
-    bus: Option<Rc<RefCell<Bus>>>,
+    pub bus: Bus,
     pub status: u8,
     pub a: u8,    // a register
     pub x: u8,    // x register
@@ -83,7 +83,6 @@ impl Cpu {
     /// Addressing Mode: Zero Page
     pub fn ZP0(&mut self) -> u8 {
         self.addr_abs = self.pcread();
-        self.pc = self.pc + 1;
         self.addr_abs = self.addr_abs & 0x00FF;
         return 0;
     }
@@ -91,7 +90,6 @@ impl Cpu {
     /// Addressing Mode: Zero Page with X Offset
     pub fn ZPX(&mut self) -> u8 {
         self.addr_abs = self.pcread();
-        self.pc = self.pc + 1;
         self.addr_abs = self.addr_abs & 0x00FF;
         return 0;
     }
@@ -99,7 +97,6 @@ impl Cpu {
     /// Addressing Mode: Zero Page with Y Offset
     pub fn ZPY(&mut self) -> u8 {
         self.addr_abs = self.pcread();
-        self.pc = self.pc + 1;
         self.addr_abs = self.addr_abs & 0x00FF;
         return 0;
     }
@@ -107,7 +104,6 @@ impl Cpu {
     /// Addressing Mode: Relative
     pub fn REL(&mut self) -> u8 {
         self.addr_rel = self.pcread();
-        self.pc = self.pc + 1;
         if self.addr_rel & 0x80 > 0 {
             self.addr_rel = self.addr_rel | 0xFF00
         }
@@ -117,9 +113,7 @@ impl Cpu {
     /// Addressing Mode: Absolute
     pub fn ABS(&mut self) -> u8 {
         let lo = self.pcread();
-        self.pc = self.pc + 1;
         let hi = self.pcread();
-        self.pc = self.pc + 1;
 
         self.addr_abs = (hi << 8) | lo;
 
@@ -129,9 +123,7 @@ impl Cpu {
     /// Addressing Mode: Absolute with X offset
     pub fn ABX(&mut self) -> u8 {
         let lo = self.pcread();
-        self.pc = self.pc + 1;
         let hi = self.pcread();
-        self.pc = self.pc + 1;
 
         let x16: u16 = self.x.into();
         self.addr_abs = ((hi << 8) | lo).wrapping_add(x16);
@@ -145,9 +137,7 @@ impl Cpu {
     /// Addressing Mode: Absolute with Y offset
     pub fn ABY(&mut self) -> u8 {
         let lo = self.pcread();
-        self.pc = self.pc + 1;
         let hi = self.pcread();
-        self.pc = self.pc + 1;
 
         let y16: u16 = self.y.into();
         self.addr_abs = ((hi << 8) | lo).wrapping_add(y16);
@@ -162,9 +152,7 @@ impl Cpu {
     /// Addressing Mode: Indirect
     pub fn IND(&mut self) -> u8 {
         let lo = self.pcread();
-        self.pc = self.pc + 1;
         let hi = self.pcread();
-        self.pc = self.pc + 1;
 
         let ptr: u16 = (hi << 8) | lo;
 
@@ -184,7 +172,6 @@ impl Cpu {
     /// Addressing Mode: Indirect x offset
     pub fn IZX(&mut self) -> u8 {
         let t = self.pcread();
-        self.pc = self.pc + 1;
 
         let x16: u16 = self.x.into();
         let ptr = t + x16;
@@ -196,10 +183,9 @@ impl Cpu {
         return 0;
     }
 
-    /// Indirect Y offset
+    /// Addressing Mode: Indirect Y offset
     pub fn IZY(&mut self) -> u8 {
         let t = self.pcread();
-        self.pc = self.pc + 1;
 
         let x16: u16 = self.x.into();
         let ptr = t + x16;
@@ -343,7 +329,7 @@ impl Cpu {
     pub fn BPL(&mut self) -> u8 {
         if self.get_flag(FLAGS6502::N) == 0 {
             self.cycles = self.cycles + 1;
-            self.addr_abs = self.addr_rel + self.pc;
+            self.addr_abs = self.addr_rel.wrapping_add(self.pc);
             if (self.addr_abs & 0xFF00) != (self.pc & 0xFF00) {
                 self.cycles = self.cycles + 1;
             }
@@ -787,7 +773,7 @@ impl Cpu {
     //Interrupts
     pub fn clock(&mut self) {
         if self.cycles == 0 {
-            self.opcode = self.read(self.pc, false);
+            self.opcode = (self.pcread() & 0x00FF) as u8;
 
             let instr = &self.lookup[usize::from(self.opcode)];
 
@@ -880,7 +866,7 @@ impl Cpu {
     pub fn new() -> Self {
         type I = Instruction;
         return Cpu {
-            bus: None,
+            bus: Bus::new(),
             status: 0,
             a: 0,
             x: 0,
@@ -1153,25 +1139,20 @@ impl Cpu {
         };
     }
 
-    pub fn connect_bus(&mut self, bus: Rc<RefCell<Bus>>) {
-        self.bus = Some(bus.clone());
+    fn pcread(&mut self) -> u16 {
+        let result = self.read(self.pc, false).into();
+        self.pc = self.pc + 1;
+        return result;
     }
 
-    fn pcread(&self) -> u16 {
-        return self.read(self.pc, false).into();
+    pub fn read(&self, addr: u16, b_read_only: bool) -> u8 {
+        let ua = usize::from(addr);
+        let ret = self.bus.read(ua, b_read_only);
+        return ret;
     }
 
-    fn read(&self, addr: u16, b_read_only: bool) -> u8 {
-        // let b = &self.bus.as_ref().unwrap().borrow();
-        // let ua = usize::from(addr);
-        // let ret = b.cpu_read(ua, b_read_only);
-        // return ret;
-        return 0;
-    }
-
-    fn write(&mut self, addr: usize, data: u8) {
-        let b = &self.bus.as_ref();
-        // b.unwrap().borrow_mut().cpu_write(addr, data);
+    pub fn write(&mut self, addr: usize, data: u8) {
+        self.bus.write(addr, data);
     }
 
     pub fn get_flag(&self, f: FLAGS6502) -> u8 {

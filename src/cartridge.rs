@@ -19,7 +19,7 @@ struct CartHeader {
     prg_ram_size: u8,
     tv_system1: u8,
     tv_system2: u8,
-    unused: [u8; 4],
+    unused: [u8; 5],
 }
 
 #[derive(Default)]
@@ -38,7 +38,7 @@ impl Cartridge {
         let mut header: CartHeader = Default::default();
 
         let mut file = File::open(file_name).unwrap();
-        let mut buf: [u8; 15] = [0; 15];
+        
         let _ = file.read_exact(&mut header.name);
         header.prg_rom_chunks = file.read_u8().unwrap();
         header.chr_rom_chunks = file.read_u8().unwrap();

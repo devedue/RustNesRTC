@@ -16,6 +16,7 @@ pub struct Ppu {
     spr_pattern_table: [Sprite; 2],
     scan_line: u16,
     cycle: u16,
+    counter: u128,
 
     // debug
     pub frame_complete: bool, // tbl_pattern: [[u8; 4096]; 2], olc future
@@ -100,6 +101,7 @@ impl Ppu {
             scan_line: 0,
             cycle: 0,
             frame_complete: false,
+            counter: 0,
         };
 
         return newppu;
@@ -117,6 +119,7 @@ impl Ppu {
             scan_line: 0,
             cycle: 0, // tbl_pattern: [[0; 4096]; 2], olc future
             frame_complete: false,
+            counter: 0,
         };
     }
     // Communications with cpu bus
@@ -186,7 +189,7 @@ impl Ppu {
     //     &Decal::create(Some(*self.spr_screen.deref()))
     // }
 
-    pub fn clock(&mut self) {
+    pub fn clock(&mut self) -> u128 {
         // Fake some noise for now
         let mut position: usize = 0;
         if rand::random::<u16>() % 2 > 0 {
@@ -209,5 +212,8 @@ impl Ppu {
                 self.frame_complete = true;
             }
         }
+
+        self.counter = self.counter + 1;
+        return self.counter;
     }
 }
