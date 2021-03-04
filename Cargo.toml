@@ -11,6 +11,9 @@ byteorder = "1.4.2"
 minifb = "0.15.3"
 image = "0.22.4"
 num-traits = ""
+chrono = "0.4.19"
+bitfield = ""
+indexmap = "1.6.1"
 
 [dev-dependencies]
 rand = ""

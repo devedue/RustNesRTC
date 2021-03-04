@@ -7,7 +7,12 @@ use std::{
     io::{Read, Seek, SeekFrom},
 };
 
-enum MIRROR {}
+pub enum Mirror {
+    HORIZONTAL,
+    VERTICAL,
+    // ONESCREENLO,
+    // ONESCREENHI,
+}
 
 #[derive(Default)]
 struct CartHeader {
@@ -16,21 +21,24 @@ struct CartHeader {
     chr_rom_chunks: u8,
     mapper1: u8,
     mapper2: u8,
-    prg_ram_size: u8,
-    tv_system1: u8,
-    tv_system2: u8,
+    _prg_ram_size: u8,
+    _tv_system1: u8,
+    _tv_system2: u8,
     unused: [u8; 5],
 }
 
 #[derive(Default)]
 pub struct Cartridge {
-    header: CartHeader,
-    mapper_id: u8,
-    prg_banks: u8,
-    chr_banks: u8,
     pub v_prg_memory: Vec<u8>,
     v_chr_memory: Vec<u8>,
     p_mapper: Mapper000,
+    pub mirror: Mirror,
+}
+
+impl Default for Mirror {
+    fn default() -> Mirror {
+        Mirror::HORIZONTAL
+    }
 }
 
 impl Cartridge {
@@ -38,16 +46,20 @@ impl Cartridge {
         let mut header: CartHeader = Default::default();
 
         let mut file = File::open(file_name).unwrap();
-        
         let _ = file.read_exact(&mut header.name);
         header.prg_rom_chunks = file.read_u8().unwrap();
         header.chr_rom_chunks = file.read_u8().unwrap();
         header.mapper1 = file.read_u8().unwrap();
         header.mapper2 = file.read_u8().unwrap();
-        header.prg_ram_size = file.read_u8().unwrap();
-        header.tv_system1 = file.read_u8().unwrap();
-        header.tv_system2 = file.read_u8().unwrap();
+        header._prg_ram_size = file.read_u8().unwrap();
+        header._tv_system1 = file.read_u8().unwrap();
+        header._tv_system2 = file.read_u8().unwrap();
         let _ = file.read_exact(&mut header.unused);
+
+        let mut mirror = Mirror::HORIZONTAL;
+        if header.mapper1 & 0x01 > 0 {
+            mirror = Mirror::VERTICAL
+        }
 
         if header.mapper1 & 0x04 > 0 {
             let _ = file.seek(SeekFrom::Current(512));
@@ -86,13 +98,10 @@ impl Cartridge {
         }
 
         return Cartridge {
-            header,
-            mapper_id,
-            prg_banks,
             v_prg_memory,
-            chr_banks,
             v_chr_memory,
             p_mapper,
+            mirror,
         };
     }
     // Communications with cpu bus
@@ -106,7 +115,7 @@ impl Cartridge {
     }
     pub fn cpu_write(&mut self, addr: usize, data: u8) -> bool {
         let mut mapped_addr = 0 as u32;
-        if (self.p_mapper).cpu_map_read(addr as u16, &mut mapped_addr) {
+        if (self.p_mapper).cpu_map_write(addr as u16, &mut mapped_addr) {
             self.v_prg_memory[mapped_addr as usize] = data;
             return true;
         }
@@ -114,9 +123,9 @@ impl Cartridge {
     }
 
     // Communications with ppu bus
-    pub fn ppu_read(&self, addr: usize, data: &mut u8) -> bool {
+    pub fn ppu_read(&self, addr: u16, data: &mut u8) -> bool {
         let mut mapped_addr = 0 as u32;
-        if (self.p_mapper).cpu_map_read(addr as u16, &mut mapped_addr) {
+        if (self.p_mapper).ppu_map_read(addr, &mut mapped_addr) {
             *data = self.v_chr_memory[mapped_addr as usize];
             return true;
         }
@@ -124,7 +133,7 @@ impl Cartridge {
     }
     pub fn ppu_write(&mut self, addr: usize, data: u8) -> bool {
         let mut mapped_addr = 0 as u32;
-        if (self.p_mapper).cpu_map_read(addr as u16, &mut mapped_addr) {
+        if (self.p_mapper).ppu_map_write(addr as u16, &mut mapped_addr) {
             self.v_chr_memory[mapped_addr as usize] = data;
             return true;
         }

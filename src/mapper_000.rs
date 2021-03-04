@@ -26,14 +26,30 @@ impl Mapper for Mapper000 {
         return false;
     }
     fn cpu_map_write(&self, addr: u16, mapped_addr: &mut u32) -> bool {
-        return addr >= 0x8000;
+        if addr >= 0x8000 {
+            if self.n_prg_banks > 1 {
+                *mapped_addr = (addr & 0x7FFF) as u32;
+            } else {
+                *mapped_addr = (addr & 0x3FFF) as u32;
+            }
+            return true;
+        }
+        return false;
     }
     fn ppu_map_read(&self, addr: u16, mapped_addr: &mut u32) -> bool {
-        *mapped_addr = addr as u32;
+        if addr <= 0x1FFF {
+            *mapped_addr = addr as u32;
+            return true;
+        }
 
-        return addr <= 0x1FFF;
+        return false;
     }
     fn ppu_map_write(&self, addr: u16, mapped_addr: &mut u32) -> bool {
-        return addr <= 0x1FFF;
+        if addr <= 0x1FFF && self.n_chr_banks == 0 {
+            *mapped_addr = addr as u32;
+            return true;
+        }
+
+        return false;
     }
 }

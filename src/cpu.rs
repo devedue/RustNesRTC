@@ -1,7 +1,6 @@
 use crate::bus::*;
-use std::cell::RefCell;
-use std::convert::TryFrom;
-use std::rc::Rc;
+use crate::util::*;
+use indexmap::IndexMap;
 
 pub enum FLAGS6502 {
     C = (1 << 0), // Carry Bit
@@ -51,6 +50,7 @@ pub struct Cpu {
     pub opcode: u8,
     pub cycles: u8,
     pub lookup: Vec<Instruction>,
+    pub map_asm: IndexMap<u16, String>,
 }
 
 #[allow(non_snake_case)]
@@ -62,9 +62,9 @@ impl Cpu {
 
     fn pop_from_stack(&mut self) -> u8 {
         self.stkp = self.stkp.wrapping_add(1);
-        let result = self.read(((0x0100 as u16) + (self.stkp as u16)), false);
+        let result = self.read((0x0100 as u16) + (self.stkp as u16), false);
         return result;
-        return 0;
+        // return 0;
     }
 
     /// Addressing Mode : Implied
@@ -76,7 +76,7 @@ impl Cpu {
     /// Addressing Mode : Immediate
     pub fn IMM(&mut self) -> u8 {
         self.addr_abs = self.pc;
-        self.pc = self.pc.wrapping_add(1);
+        self.pc = self.pc + 1;
         return 0;
     }
 
@@ -89,14 +89,14 @@ impl Cpu {
 
     /// Addressing Mode: Zero Page with X Offset
     pub fn ZPX(&mut self) -> u8 {
-        self.addr_abs = self.pcread();
+        self.addr_abs = self.pcread() + (self.x as u16);
         self.addr_abs = self.addr_abs & 0x00FF;
         return 0;
     }
 
     /// Addressing Mode: Zero Page with Y Offset
     pub fn ZPY(&mut self) -> u8 {
-        self.addr_abs = self.pcread();
+        self.addr_abs = self.pcread() + (self.y as u16);
         self.addr_abs = self.addr_abs & 0x00FF;
         return 0;
     }
@@ -125,8 +125,8 @@ impl Cpu {
         let lo = self.pcread();
         let hi = self.pcread();
 
-        let x16: u16 = self.x.into();
-        self.addr_abs = ((hi << 8) | lo).wrapping_add(x16);
+        self.addr_abs = (hi << 8) | lo;
+        self.addr_abs = self.addr_abs.wrapping_add(self.x as u16);
         if (self.addr_abs & 0xFF00) != (hi << 8) {
             return 1;
         } else {
@@ -139,31 +139,30 @@ impl Cpu {
         let lo = self.pcread();
         let hi = self.pcread();
 
-        let y16: u16 = self.y.into();
-        self.addr_abs = ((hi << 8) | lo).wrapping_add(y16);
+        self.addr_abs = (hi << 8) | lo;
+        self.addr_abs = self.addr_abs.wrapping_add(self.y as u16);
         if (self.addr_abs & 0xFF00) != (hi << 8) {
             return 1;
         } else {
             return 0;
         }
-        return 0;
     }
 
     /// Addressing Mode: Indirect
     pub fn IND(&mut self) -> u8 {
-        let lo = self.pcread();
-        let hi = self.pcread();
+        let ptr_lo = self.pcread();
+        let ptr_hi = self.pcread();
 
-        let ptr: u16 = (hi << 8) | lo;
+        let ptr: u16 = (ptr_hi << 8) | ptr_lo;
 
-        if lo == 0x00FF {
-            let hi_addr: u16 = self.read((ptr + 1), false).into();
+        if ptr_lo == 0x00FF {
+            let hi_addr: u16 = self.read(ptr & 0xFF00, false).into();
             let lo_addr: u16 = self.read(ptr, false).into();
-            self.addr_abs = hi_addr << 8 | lo_addr;
+            self.addr_abs = (hi_addr << 8) | lo_addr;
         } else {
-            let hi_addr: u16 = self.read((ptr & 0x00FF), false).into();
+            let hi_addr: u16 = self.read(ptr + 1, false).into();
             let lo_addr: u16 = self.read(ptr, false).into();
-            self.addr_abs = hi_addr << 8 | lo_addr;
+            self.addr_abs = (hi_addr << 8) | lo_addr;
         }
 
         return 0;
@@ -173,12 +172,12 @@ impl Cpu {
     pub fn IZX(&mut self) -> u8 {
         let t = self.pcread();
 
-        let x16: u16 = self.x.into();
-        let ptr = t + x16;
+        let ptr = t + (self.x as u16);
 
-        let hi: u16 = self.read((ptr + 1 & 0x00FF), false).into();
-        let lo: u16 = self.read((ptr & 0x00FF), false).into();
-        self.addr_abs = hi << 8 | lo;
+        let lo: u16 = self.read(ptr & 0x00FF, false).into();
+        let hi: u16 = self.read((ptr + 1) & 0x00FF, false).into();
+
+        self.addr_abs = (hi << 8) | lo;
 
         return 0;
     }
@@ -187,14 +186,10 @@ impl Cpu {
     pub fn IZY(&mut self) -> u8 {
         let t = self.pcread();
 
-        let x16: u16 = self.x.into();
-        let ptr = t + x16;
-
-        let hi: u16 = self.read((ptr + 1 & 0x00FF), false).into();
-        let lo: u16 = self.read((ptr & 0x00FF), false).into();
-        self.addr_abs = hi << 8 | lo;
-        let y16: u16 = self.y.into();
-        self.addr_abs = self.addr_abs + y16;
+        let lo: u16 = self.read(t & 0x00FF, false).into();
+        let hi: u16 = self.read((t + 1) & 0x00FF, false).into();
+        self.addr_abs = (hi << 8) | lo;
+        self.addr_abs = self.addr_abs.wrapping_add(self.y as u16);
 
         if (self.addr_abs & 0xFF00) != (hi << 8) {
             return 1;
@@ -210,11 +205,11 @@ impl Cpu {
         self.fetch();
         let temp: u16 =
             (self.a as u16) + (self.fetched as u16) + (self.get_flag(FLAGS6502::C) as u16);
-        self.set_flag(FLAGS6502::C, temp & 0xFF00 > 0);
-        self.set_flag(FLAGS6502::Z, temp == 0);
+        self.set_flag(FLAGS6502::C, temp > 255);
+        self.set_flag(FLAGS6502::Z, (temp & 0x00FF) == 0);
         self.set_flag(
             FLAGS6502::V,
-            (!(self.a as u16 ^ self.fetched as u16 & (self.a as u16 ^ temp)) & 0x0080) > 0,
+            (!(self.a as u16 ^ self.fetched as u16) & (self.a as u16 ^ temp)) & 0x0080 > 0,
         );
         self.set_flag(FLAGS6502::N, temp & 0x80 > 0);
         self.a = (temp & 0x00FF) as u8;
@@ -234,7 +229,7 @@ impl Cpu {
     /// Instruction: Accumulator shift left
     pub fn ASL(&mut self) -> u8 {
         self.fetch();
-        let temp: u16 = (self.fetched << 1).into();
+        let temp: u16 = (self.fetched as u16) << 1;
         self.set_flag(FLAGS6502::C, (temp & 0xFF00) > 0);
         self.set_flag(FLAGS6502::Z, (temp & 0x00FF) == 0x00);
         self.set_flag(FLAGS6502::N, (temp & 0x80) > 0);
@@ -248,94 +243,46 @@ impl Cpu {
 
     /// Instruction: Branch if carry is clear
     pub fn BCC(&mut self) -> u8 {
-        if self.get_flag(FLAGS6502::C) == 0 {
-            self.cycles = self.cycles + 1;
-            self.addr_abs = self.addr_rel + self.pc;
-            if (self.addr_abs & 0xFF00) != (self.pc & 0xFF00) {
-                self.cycles = self.cycles + 1;
-            }
-
-            self.pc = self.addr_abs;
-        }
+        self.branchrel(self.get_flag(FLAGS6502::C) == 0);
         return 0;
     }
 
     /// Instruction: Branch if carry bit is set
     pub fn BCS(&mut self) -> u8 {
-        if self.get_flag(FLAGS6502::C) == 1 {
-            self.cycles = self.cycles + 1;
-            self.addr_abs = self.addr_rel.wrapping_add(self.pc);
-            if (self.addr_abs & 0xFF00) != (self.pc & 0xFF00) {
-                self.cycles = self.cycles + 1;
-            }
-
-            self.pc = self.addr_abs;
-        }
+        self.branchrel(self.get_flag(FLAGS6502::C) == 1);
         return 0;
     }
 
     /// Instruction: Branch if equal
     pub fn BEQ(&mut self) -> u8 {
-        if self.get_flag(FLAGS6502::Z) == 1 {
-            self.cycles = self.cycles + 1;
-            self.addr_abs = self.addr_rel + self.pc;
-            if (self.addr_abs & 0xFF00) != (self.pc & 0xFF00) {
-                self.cycles = self.cycles + 1;
-            }
-
-            self.pc = self.addr_abs;
-        }
+        self.branchrel(self.get_flag(FLAGS6502::Z) == 1);
         return 0;
     }
 
     pub fn BIT(&mut self) -> u8 {
         self.fetch();
         let temp = self.a & self.fetched;
-        self.set_flag(FLAGS6502::Z, temp == 0);
-        self.set_flag(FLAGS6502::V, self.fetched & 0x40 == 1);
-        self.set_flag(FLAGS6502::N, self.fetched & 0x80 == 1);
+        self.set_flag(FLAGS6502::Z, (temp & 0x00FF) == 0);
+        self.set_flag(FLAGS6502::V, self.fetched & 0x40 > 0);
+        self.set_flag(FLAGS6502::N, self.fetched & 0x80 > 0);
         return 0;
     }
 
     /// Instruction: Branch if minus
     pub fn BMI(&mut self) -> u8 {
-        if self.get_flag(FLAGS6502::N) == 1 {
-            self.cycles = self.cycles + 1;
-            self.addr_abs = self.addr_rel + self.pc;
-            if (self.addr_abs & 0xFF00) != (self.pc & 0xFF00) {
-                self.cycles = self.cycles + 1;
-            }
-
-            self.pc = self.addr_abs;
-        }
+        self.branchrel(self.get_flag(FLAGS6502::N) == 1);
         return 0;
     }
 
     /// Instruction: Branch if not equal
     pub fn BNE(&mut self) -> u8 {
-        if self.get_flag(FLAGS6502::Z) == 0 {
-            self.cycles = self.cycles + 1;
-            self.addr_abs = self.addr_rel.wrapping_add(self.pc);
-            if (self.addr_abs & 0xFF00) != (self.pc & 0xFF00) {
-                self.cycles = self.cycles + 1;
-            }
-
-            self.pc = self.addr_abs;
-        }
+        self.branchrel(self.get_flag(FLAGS6502::Z) == 0);
         return 0;
     }
 
     /// Instruction: Branch if positive
     pub fn BPL(&mut self) -> u8 {
-        if self.get_flag(FLAGS6502::N) == 0 {
-            self.cycles = self.cycles + 1;
-            self.addr_abs = self.addr_rel.wrapping_add(self.pc);
-            if (self.addr_abs & 0xFF00) != (self.pc & 0xFF00) {
-                self.cycles = self.cycles + 1;
-            }
-
-            self.pc = self.addr_abs;
-        }
+        self.branchrel(self.get_flag(FLAGS6502::N) == 0);
         return 0;
     }
 
@@ -351,36 +298,20 @@ impl Cpu {
         self.push_to_stack(self.status);
         self.set_flag(FLAGS6502::B, false);
 
-        self.pc = self.read((0xFFFE as u16), false) as u16
-            | ((self.read((0xFFFF as u16), false) as u16) << 8) as u16;
+        self.pc = self.read(0xFFFE as u16, false) as u16
+            | ((self.read(0xFFFF as u16, false) as u16) << 8) as u16;
         return 0;
     }
 
     /// Instruction: Branch if overflowed
     pub fn BVC(&mut self) -> u8 {
-        if self.get_flag(FLAGS6502::V) == 0 {
-            self.cycles = self.cycles + 1;
-            self.addr_abs = self.addr_rel + self.pc;
-            if (self.addr_abs & 0xFF00) != (self.pc & 0xFF00) {
-                self.cycles = self.cycles + 1;
-            }
-
-            self.pc = self.addr_abs;
-        }
+        self.branchrel(self.get_flag(FLAGS6502::V) == 0);
         return 0;
     }
 
     /// Instruction: Branch if  not overflowed
     pub fn BVS(&mut self) -> u8 {
-        if self.get_flag(FLAGS6502::V) == 1 {
-            self.cycles = self.cycles + 1;
-            self.addr_abs = self.addr_rel + self.pc;
-            if (self.addr_abs & 0xFF00) != (self.pc & 0xFF00) {
-                self.cycles = self.cycles + 1;
-            }
-
-            self.pc = self.addr_abs;
-        }
+        self.branchrel(self.get_flag(FLAGS6502::V) == 1);
         return 0;
     }
 
@@ -411,22 +342,21 @@ impl Cpu {
     /// Instruction: Compare memory with A register
     pub fn CMP(&mut self) -> u8 {
         self.fetch();
-        self.set_flag(FLAGS6502::C, self.a > self.fetched);
-        self.set_flag(FLAGS6502::Z, self.a == self.fetched);
-        self.set_flag(
-            FLAGS6502::N,
-            ((self.a.wrapping_sub(self.fetched) & 0x80) > 0),
-        );
+        let temp = self.a.wrapping_sub(self.fetched);
+        self.set_flag(FLAGS6502::C, self.a >= self.fetched);
+        self.set_flag(FLAGS6502::Z, (temp & 0x00FF) == 0x0000);
+        self.set_flag(FLAGS6502::N, temp & 0x0080 > 0);
 
-        return 0;
+        return 1;
     }
 
     /// Instruction: Compare memory with X register
     pub fn CPX(&mut self) -> u8 {
         self.fetch();
-        self.set_flag(FLAGS6502::C, self.x > self.fetched);
-        self.set_flag(FLAGS6502::Z, self.x == self.fetched);
-        self.set_flag(FLAGS6502::N, (self.x.wrapping_sub(self.fetched) & 0x80) > 0);
+        let temp = self.x.wrapping_sub(self.fetched);
+        self.set_flag(FLAGS6502::C, self.x >= self.fetched);
+        self.set_flag(FLAGS6502::Z, (temp & 0x00FF) == 0x0000);
+        self.set_flag(FLAGS6502::N, temp & 0x0080 > 0);
 
         return 0;
     }
@@ -434,9 +364,10 @@ impl Cpu {
     /// Instruction: Compare memory with Y register
     pub fn CPY(&mut self) -> u8 {
         self.fetch();
-        self.set_flag(FLAGS6502::C, self.y > self.fetched);
-        self.set_flag(FLAGS6502::Z, self.y == self.fetched);
-        self.set_flag(FLAGS6502::N, (self.y.wrapping_sub(self.fetched) & 0x80) > 0);
+        let temp = self.y.wrapping_sub(self.fetched);
+        self.set_flag(FLAGS6502::C, self.y >= self.fetched);
+        self.set_flag(FLAGS6502::Z, (temp & 0x00FF) == 0x0000);
+        self.set_flag(FLAGS6502::N, temp & 0x0080 > 0);
 
         return 0;
     }
@@ -447,18 +378,16 @@ impl Cpu {
 
         let result = self.fetched.wrapping_sub(1);
         self.write(self.addr_abs as usize, (result & 0x00FF) as u8);
-        self.set_flag(FLAGS6502::Z, result == 0);
-        self.set_flag(FLAGS6502::N, (result & 0x80) > 0);
+        self.set_flag(FLAGS6502::Z, (result & 0x00FF) == 0);
+        self.set_flag(FLAGS6502::N, (result & 0x0080) > 0);
 
         return 0;
     }
     /// Instruction: Decrement X register
     pub fn DEX(&mut self) -> u8 {
-        let result = self.x.wrapping_sub(1);
+        self.x = self.x.wrapping_sub(1);
         self.set_flag(FLAGS6502::Z, self.x == 0);
         self.set_flag(FLAGS6502::N, (self.x & 0x80) > 0);
-
-        self.x = result as u8;
 
         return 0;
     }
@@ -486,7 +415,7 @@ impl Cpu {
     pub fn INC(&mut self) -> u8 {
         self.fetch();
 
-        let result = self.fetched + 1;
+        let result = self.fetched.wrapping_add(1);
         self.write(self.addr_abs as usize, result & 0x00FF);
         self.set_flag(FLAGS6502::Z, result == 0);
         self.set_flag(FLAGS6502::N, (result & 0x80) > 0);
@@ -496,7 +425,7 @@ impl Cpu {
 
     /// Instruction: Increment X
     pub fn INX(&mut self) -> u8 {
-        self.x = self.x.wrapping_sub(1);
+        self.x = self.x.wrapping_add(1);
         self.set_flag(FLAGS6502::Z, self.x == 0);
         self.set_flag(FLAGS6502::N, (self.x & 0x80) > 0);
 
@@ -532,9 +461,10 @@ impl Cpu {
     pub fn LDA(&mut self) -> u8 {
         self.fetch();
         self.a = self.fetched;
+        
         self.set_flag(FLAGS6502::Z, self.a == 0);
         self.set_flag(FLAGS6502::N, (self.a & 0x80) > 0);
-        return 0;
+        return 1;
     }
 
     /// Instruction: Load memory in X
@@ -543,7 +473,7 @@ impl Cpu {
         self.x = self.fetched;
         self.set_flag(FLAGS6502::Z, self.x == 0);
         self.set_flag(FLAGS6502::N, (self.x & 0x80) > 0);
-        return 0;
+        return 1;
     }
 
     /// Instruction: Load memory in Y
@@ -552,14 +482,14 @@ impl Cpu {
         self.y = self.fetched;
         self.set_flag(FLAGS6502::Z, self.y == 0);
         self.set_flag(FLAGS6502::N, (self.y & 0x80) > 0);
-        return 0;
+        return 1;
     }
 
     /// Instruction: Logical shift right
     pub fn LSR(&mut self) -> u8 {
         self.fetch();
-        let temp: u16 = (self.fetched >> 1).into();
-        self.set_flag(FLAGS6502::C, (temp & 0xFF00) > 0);
+        self.set_flag(FLAGS6502::C, (self.fetched & 0x0001) > 0);
+        let temp: u16 = (self.fetched as u16) >> 1;
         self.set_flag(FLAGS6502::Z, (temp & 0x00FF) == 0x00);
         self.set_flag(FLAGS6502::N, (temp & 0x80) > 0);
         if self.lookup[usize::from(self.opcode)].addrmode as usize == Self::IMP as usize {
@@ -572,6 +502,9 @@ impl Cpu {
 
     /// Instruction: No operation
     pub fn NOP(&mut self) -> u8 {
+        if self.opcode == 0xFC {
+            return 1;
+        }
         return 0;
     }
 
@@ -592,7 +525,9 @@ impl Cpu {
 
     /// Instruction: Push status to stack
     pub fn PHP(&mut self) -> u8 {
-        self.push_to_stack(self.status);
+        self.push_to_stack(self.status | (FLAGS6502::B as u8) | (FLAGS6502::U as u8));
+        self.set_flag(FLAGS6502::B, false);
+	    self.set_flag(FLAGS6502::U, false);
         return 0;
     }
 
@@ -607,13 +542,14 @@ impl Cpu {
     /// Instruction: Pop from stack to status
     pub fn PLP(&mut self) -> u8 {
         self.status = self.pop_from_stack();
+        self.set_flag(FLAGS6502::U, true);
         return 0;
     }
 
     /// Instruction: Rotate Left
     pub fn ROL(&mut self) -> u8 {
         self.fetch();
-        let temp: u16 = ((self.fetched << 1) | self.get_flag(FLAGS6502::C)).into();
+        let temp: u16 = ((self.fetched as u16) << 1) | (self.get_flag(FLAGS6502::C) as u16);
         self.set_flag(FLAGS6502::C, (temp & 0xFF00) > 0);
         self.set_flag(FLAGS6502::Z, (temp & 0x00FF) == 0x00);
         self.set_flag(FLAGS6502::N, (temp & 0x80) > 0);
@@ -628,11 +564,8 @@ impl Cpu {
     /// Instruction: Rotate Right
     pub fn ROR(&mut self) -> u8 {
         self.fetch();
-        let mut cval = 0;
-        if self.get_flag(FLAGS6502::C) > 0 {
-            cval = 1;
-        }
-        let temp: u16 = ((self.fetched >> 1) | (cval << 7)).into();
+        let cval = self.get_flag(FLAGS6502::C);
+        let temp: u16 = ((self.fetched as u16) >> 1) | ((cval as u16) << 7);
         self.set_flag(FLAGS6502::C, (self.fetched & 0x01) > 0);
         self.set_flag(FLAGS6502::Z, (temp & 0x00FF) == 0x00);
         self.set_flag(FLAGS6502::N, (temp & 0x0080) > 0);
@@ -773,18 +706,25 @@ impl Cpu {
     //Interrupts
     pub fn clock(&mut self) {
         if self.cycles == 0 {
-            self.opcode = (self.pcread() & 0x00FF) as u8;
+            self.opcode = self.read(self.pc, false).into();
+
+            self.set_flag(FLAGS6502::U, true);
+            self.pc = self.pc + 1;
 
             let instr = &self.lookup[usize::from(self.opcode)];
+
+            self.cycles = instr.cycles;
 
             let addrfunc = instr.addrmode;
             let operfunc = instr.operate;
 
             let additional_cycle1 = addrfunc(self);
             let additional_cycle2 = operfunc(self);
-            self.cycles = self.cycles + additional_cycle1 & additional_cycle2;
+
+            self.cycles = self.cycles + (additional_cycle1 & additional_cycle2);
+            self.set_flag(FLAGS6502::U, true);
         }
-        if (self.cycles > 0) {
+        if self.cycles > 0 {
             self.cycles = self.cycles - 1;
         }
     }
@@ -815,29 +755,31 @@ impl Cpu {
         self.fetched = 0;
 
         self.cycles = 8;
+
+        self.bus.reset();
     }
 
     /// interrupt only if I=0
-    fn irq(&mut self) {
-        if self.get_flag(FLAGS6502::I) == 0 {
-            self.push_to_stack(((self.pc >> 8) & 0x00FF) as u8);
-            self.push_to_stack((self.pc & 0x00FF) as u8);
+    // fn irq(&mut self) {
+    //     if self.get_flag(FLAGS6502::I) == 0 {
+    //         self.push_to_stack(((self.pc >> 8) & 0x00FF) as u8);
+    //         self.push_to_stack((self.pc & 0x00FF) as u8);
 
-            self.set_flag(FLAGS6502::B, false);
-            self.set_flag(FLAGS6502::U, true);
-            self.set_flag(FLAGS6502::I, true);
-            self.push_to_stack(self.status);
+    //         self.set_flag(FLAGS6502::B, false);
+    //         self.set_flag(FLAGS6502::U, true);
+    //         self.set_flag(FLAGS6502::I, true);
+    //         self.push_to_stack(self.status);
 
-            self.addr_abs = 0xFFFE;
-            let lo = self.read((self.addr_abs + 0), false);
-            let hi = self.read((self.addr_abs + 1), false);
-            self.pc = ((hi as u16) << 8) | (lo as u16);
-            self.cycles = 7;
-        }
-    }
+    //         self.addr_abs = 0xFFFE;
+    //         let lo = self.read(self.addr_abs + 0, false);
+    //         let hi = self.read(self.addr_abs + 1, false);
+    //         self.pc = ((hi as u16) << 8) | (lo as u16);
+    //         self.cycles = 7;
+    //     }
+    // }
 
     /// Non maskable interrupt
-    fn nmi(&mut self) {
+    pub fn nmi(&mut self) {
         self.push_to_stack(((self.pc >> 8) & 0x00FF) as u8);
         self.push_to_stack((self.pc & 0x00FF) as u8);
 
@@ -846,12 +788,11 @@ impl Cpu {
         self.set_flag(FLAGS6502::I, true);
         self.push_to_stack(self.status);
 
-        self.addr_abs = 0xFFFE;
+        self.addr_abs = 0xFFFA;
         let lo = self.read(self.addr_abs + 0, false);
         let hi = self.read(self.addr_abs + 1, false);
 
         self.pc = ((hi as u16) << 8) | (lo as u16);
-
         self.cycles = 8;
     }
 
@@ -881,7 +822,7 @@ impl Cpu {
             lookup: vec![
                 I::new_i("BRK", Self::BRK, Self::IMM, 7),
                 I::new_i("ORA", Self::ORA, Self::IZX, 6),
-                I::new_i("IMP", Self::XXX, Self::IMP, 2),
+                I::new_i("???", Self::XXX, Self::IMP, 2),
                 I::new_i("???", Self::XXX, Self::IMP, 8),
                 I::new_i("???", Self::NOP, Self::IMP, 3),
                 I::new_i("ORA", Self::ORA, Self::ZP0, 3),
@@ -1136,6 +1077,7 @@ impl Cpu {
                 I::new_i("INC", Self::INC, Self::ABX, 7),
                 I::new_i("???", Self::XXX, Self::IMP, 7),
             ],
+            map_asm: IndexMap::new(),
         };
     }
 
@@ -1145,10 +1087,20 @@ impl Cpu {
         return result;
     }
 
-    pub fn read(&self, addr: u16, b_read_only: bool) -> u8 {
-        let ua = usize::from(addr);
-        let ret = self.bus.read(ua, b_read_only);
-        return ret;
+    fn branchrel(&mut self, flag: bool) {
+        if flag {
+            self.cycles = self.cycles + 1;
+            self.addr_abs = self.addr_rel.wrapping_add(self.pc);
+            if (self.addr_abs & 0xFF00) != (self.pc & 0xFF00) {
+                self.cycles = self.cycles + 1;
+            }
+
+            self.pc = self.addr_abs;
+        }
+    }
+
+    pub fn read(&mut self, addr: u16, b_read_only: bool) -> u8 {
+        return self.bus.read(usize::from(addr), b_read_only);
     }
 
     pub fn write(&mut self, addr: usize, data: u8) {
@@ -1156,7 +1108,10 @@ impl Cpu {
     }
 
     pub fn get_flag(&self, f: FLAGS6502) -> u8 {
-        return self.status & (f as u8);
+        if self.status & (f as u8) > 0 {
+            return 1;
+        }
+        return 0;
     }
     pub fn set_flag(&mut self, f: FLAGS6502, v: bool) {
         if v {
@@ -1164,5 +1119,112 @@ impl Cpu {
         } else {
             self.status = self.status & (!(f as u8));
         }
+    }
+
+    pub fn disassemble(&mut self, nStart: u16, nStop: u16) {
+        let nStop = nStop as u32;
+        let mut addr = nStart as u32;
+        let mut value: u8;
+        let mut lo;
+        let mut hi;
+        let mut mapLines: IndexMap<u16, String> = IndexMap::new();
+        let mut line_addr;
+
+        while addr < nStop {
+            line_addr = addr;
+
+            let mut sInst = format!("{}{}{}", "$", hex(addr as u16), ":           ");
+
+            let opcode = self.bus.read(addr as usize, true) as usize;
+            let inst = &self.lookup[opcode];
+            addr = addr + 1;
+            sInst = format!("{}{} ", sInst, String::from(&inst.name));
+
+            if self.lookup[opcode].addrmode as usize == Self::IMP as usize {
+                sInst = format!("{}{}", sInst, "{IMP}");
+            } else if self.lookup[opcode].addrmode as usize == Self::IMM as usize {
+                value = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                sInst = format!("{}{}{}{}", sInst, "#$", hex(value.into()), " {IMM}");
+            } else if self.lookup[opcode].addrmode as usize == Self::ZP0 as usize {
+                lo = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                sInst = format!("{}{}{}{}", sInst, "$", hex(lo.into()), " {ZP0}");
+            } else if self.lookup[opcode].addrmode as usize == Self::ZPX as usize {
+                lo = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                sInst = format!("{}{}{}{}", sInst, "$", hex(lo.into()), ", X {ZPX}");
+            } else if self.lookup[opcode].addrmode as usize == Self::ZPY as usize {
+                lo = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                sInst = format!("{}{}{}{}", sInst, "$", hex(lo.into()), ", Y {ZPY}");
+            } else if self.lookup[opcode].addrmode as usize == Self::IZX as usize {
+                lo = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                sInst = format!("{}{}{}{}", sInst, "$", hex(lo.into()), "{IZX}");
+            } else if self.lookup[opcode].addrmode as usize == Self::IZY as usize {
+                lo = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                sInst = format!("{}{}{}{}", sInst, "$", hex(lo.into()), "{IZY}");
+            } else if self.lookup[opcode].addrmode as usize == Self::ABS as usize {
+                lo = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                hi = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                let comb = ((hi as u16) << 8) | (lo as u16);
+                sInst = format!("{}{}{}{}", sInst, "$", hex(comb), " {ABS}");
+            } else if self.lookup[opcode].addrmode as usize == Self::ABX as usize {
+                lo = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                hi = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                sInst = format!(
+                    "{}{}{}{}",
+                    sInst,
+                    "$",
+                    hex((((hi as u16) << 8) | lo as u16).into()),
+                    ", X {ABX}"
+                );
+            } else if self.lookup[opcode].addrmode as usize == Self::ABY as usize {
+                lo = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                hi = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                sInst = format!(
+                    "{}{}{}{}",
+                    sInst,
+                    "$",
+                    hex((((hi as u16) << 8) | lo as u16).into()),
+                    ", Y {ABY}"
+                );
+            } else if self.lookup[opcode].addrmode as usize == Self::IND as usize {
+                lo = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                hi = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                sInst = format!(
+                    "{}{}{}{}",
+                    sInst,
+                    "$",
+                    hex((((hi as u16) << 8) | (lo as u16)).into()),
+                    "{IND}"
+                );
+            } else if self.lookup[opcode].addrmode as usize == Self::REL as usize {
+                value = self.bus.read(addr as usize, true);
+                addr = addr + 1;
+                let k = addr.wrapping_add(value as u32);
+
+                sInst = format!(
+                    "{}{}{}{}",
+                    sInst,
+                    "$",
+                    hex(k.wrapping_sub(0x0100) as u16),
+                    " {REL}"
+                );
+            }
+            mapLines.insert(line_addr as u16, String::from(sInst));
+        }
+
+        self.map_asm = mapLines;
     }
 }
