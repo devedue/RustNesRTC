@@ -461,7 +461,6 @@ impl Cpu {
     pub fn LDA(&mut self) -> u8 {
         self.fetch();
         self.a = self.fetched;
-        
         self.set_flag(FLAGS6502::Z, self.a == 0);
         self.set_flag(FLAGS6502::N, (self.a & 0x80) > 0);
         return 1;
@@ -502,10 +501,14 @@ impl Cpu {
 
     /// Instruction: No operation
     pub fn NOP(&mut self) -> u8 {
-        if self.opcode == 0xFC {
-            return 1;
+        match self.opcode {
+            0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => {
+                return 1;
+            }
+            _ => {
+                return 0;
+            }
         }
-        return 0;
     }
 
     /// Instruction: OR A and M
@@ -527,7 +530,7 @@ impl Cpu {
     pub fn PHP(&mut self) -> u8 {
         self.push_to_stack(self.status | (FLAGS6502::B as u8) | (FLAGS6502::U as u8));
         self.set_flag(FLAGS6502::B, false);
-	    self.set_flag(FLAGS6502::U, false);
+        self.set_flag(FLAGS6502::U, false);
         return 0;
     }
 
@@ -709,7 +712,7 @@ impl Cpu {
             self.opcode = self.read(self.pc, false).into();
 
             self.set_flag(FLAGS6502::U, true);
-            self.pc = self.pc + 1;
+            self.pc = self.pc.wrapping_add(1);
 
             let instr = &self.lookup[usize::from(self.opcode)];
 
