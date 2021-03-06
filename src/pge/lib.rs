@@ -256,7 +256,7 @@ impl PGE {
             // Handle User Input - Keyboard
             let mut new_key_state: [bool; 256] = [false; 256];
             if let Some(win) = &mut self.window { 
-                let keys = win.get_keys_pressed(KeyRepeat::Yes).unwrap();
+                let keys = win.get_keys().unwrap();
                 for key in keys {
                     new_key_state[key as usize] = true;
                 }
