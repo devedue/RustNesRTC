@@ -7,6 +7,10 @@ use pge::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+// For Logging: 
+// use std::io::Write;
+// use crate::util::hex;
+
 pub struct Nes {
     pub cpu: Cpu,
     pub cart: Rc<RefCell<Cartridge>>,
@@ -14,16 +18,17 @@ pub struct Nes {
     emulation_run: bool,
     draw_mode: bool,
     residual_time: f32,
+    cycles: u128,
 }
 
 impl State for Nes {
     fn on_user_create(&mut self) -> bool {
         self.cpu = Cpu::new();
-        self.cart = Rc::new(RefCell::new(Cartridge::new("nestest.nes")));
+        self.cart = Rc::new(RefCell::new(Cartridge::new("smb.nes")));
         self.cpu.bus.insert_cartridge(self.cart.clone());
         self.cpu.reset();
 
-        self.cpu.disassemble(0x0000, 0xFFFF);
+        // self.cpu.disassemble(0x0000, 0xFFFF);
 
         return true;
     }
@@ -109,62 +114,86 @@ impl State for Nes {
             self.cpu.reset();
         }
 
-        self.draw_cpu(engine, 516, 2);
+        // self.draw_cpu(engine, 516, 2);
 
         // self.draw_ram(engine, 516, 72, 0, 10, 10);
 
         let swatch_size = 6;
-        for p in 0..8 {
-            for s in 0..4 {
-                engine.fill_rect(
-                    516 + p * (swatch_size * 5) + s * swatch_size,
-                    340,
-                    swatch_size,
-                    swatch_size,
-                    &self.cpu.bus.get_ppu().get_palette_color(p as u8, s as u8),
-                );
-            }
+        // for p in 0..8 {
+        //     for s in 0..4 {
+        //         engine.fill_rect(
+        //             516 + p * (swatch_size * 5) + s * swatch_size,
+        //             340,
+        //             swatch_size,
+        //             swatch_size,
+        //             &self.cpu.bus.get_ppu().get_palette_color(p as u8, s as u8),
+        //         );
+        //     }
+        // }
+        // engine.draw_rect(
+        //     (516 + (self.selected_palette as i32) * (swatch_size * 5) - 1).into(),
+        //     339,
+        //     swatch_size * 4,
+        //     swatch_size,
+        //     &WHITE,
+        // );
+
+        // self.draw_code(engine, 516, 72, 26);
+
+        for i in 0..48 {
+            let s = hex2(i)
+                + ": ("
+                + &self
+                    .cpu
+                    .bus
+                    .get_ppu()
+                    .get_oam((i * 4 + 3) as usize)
+                    .to_string()
+                + ", "
+                + &self
+                    .cpu
+                    .bus
+                    .get_ppu()
+                    .get_oam((i * 4 + 0) as usize)
+                    .to_string()
+                + ") "
+                + "ID: "
+                + &hex2(self.cpu.bus.get_ppu().get_oam((i * 4 + 1) as usize)).to_string()
+                + " AT: "
+                + &hex2(self.cpu.bus.get_ppu().get_oam((i * 4 + 2) as usize)).to_string();
+            engine.draw_string(516, 4 + (i as i32) * 10, &String::from(s), &WHITE, 1);
         }
-        engine.draw_rect(
-            (516 + (self.selected_palette as i32) * (swatch_size * 5) - 1).into(),
-            339,
-            swatch_size * 4,
-            swatch_size,
-            &WHITE,
-        );
-
-        self.draw_code(engine, 516, 72, 26);
-
-        let sp1 = &self
-            .cpu
-            .bus
-            .get_ppu()
-            .get_pattern_table(0, self.selected_palette);
-        let sp2 = &self
-            .cpu
-            .bus
-            .get_ppu()
-            .get_pattern_table(1, self.selected_palette);
-        engine.draw_sprite(516, 348, sp1, 1);
-        engine.draw_sprite(648, 348, sp2, 1);
 
         engine.draw_sprite(0, 0, &self.cpu.bus.get_ppu().spr_screen, 2);
+
+        // let sp1 = &self
+        //     .cpu
+        //     .bus
+        //     .get_ppu()
+        //     .get_pattern_table(0, self.selected_palette);
+        // let sp2 = &self
+        //     .cpu
+        //     .bus
+        //     .get_ppu()
+        //     .get_pattern_table(1, self.selected_palette);
+        // engine.draw_sprite(516, 348, sp1, 1);
+        // engine.draw_sprite(648, 348, sp2, 1);
 
         if self.draw_mode {
             for y in 0..30 {
                 for x in 0..32 {
-                    let id = self.cpu.bus.get_ppu().tbl_name[0][(y * 32 + x) as usize];
-                    engine.draw_parital_sprite(
-                        x * 16,
-                        y * 16,
-                        sp2,
-                        ((id & 0x0F) << 3) as i32,
-                        (((id >> 4) & 0x0F) << 3) as i32,
-                        8,
-                        8,
-                        2,
-                    );
-                    engine.draw_rect(x * 16, y * 16, 16, 16, &WHITE);
+                    // let id = self.cpu.bus.get_ppu().tbl_name[0][(y * 32 + x) as usize];
+                    // engine.draw_parital_sprite(
+                    //     x * 16,
+                    //     y * 16,
+                    //     sp2,
+                    //     ((id & 0x0F) << 3) as i32,
+                    //     (((id >> 4) & 0x0F) << 3) as i32,
+                    //     8,
+                    //     8,
+                    //     2,
+                    // );
+                    // engine.draw_rect(x * 16, y * 16, 16, 16, &WHITE);
                     // engine.draw_string(
                     //     x * 16,
                     //     y * 16,
@@ -188,18 +217,45 @@ impl Nes {
             residual_time: 0.0,
             selected_palette: 0,
             draw_mode: false,
+            cycles: 0,
         };
     }
 
     fn clock(&mut self) {
-        let ppu_count = self.cpu.bus.get_ppu().clock();
-        if ppu_count % 3 == 0 {
-            self.cpu.clock();
+        self.cpu.bus.get_ppu().clock();
+        if self.cycles % 3 == 0 {
+            if self.cpu.bus.dma_transfer {
+                if self.cpu.bus.dma_dummy {
+                    if self.cycles % 2 == 1 {
+                        self.cpu.bus.dma_dummy = false;
+                    }
+                } else {
+                    if self.cycles % 2 == 0 {
+                        let page = self.cpu.bus.dma_page;
+                        let addr = self.cpu.bus.dma_addr;
+                        let data = self.cpu.read(((page as u16) << 8) | (addr as u16), false);
+                        self.cpu.bus.dma_data = data;
+                    } else {
+                        let addr = self.cpu.bus.dma_addr;
+                        let data = self.cpu.bus.dma_data;
+                        self.cpu.bus.get_ppu().set_oam(addr as usize, data);
+                        self.cpu.bus.dma_addr = addr.wrapping_add(1);
+
+                        if self.cpu.bus.dma_addr == 0x00 {
+                            self.cpu.bus.dma_transfer = false;
+                            self.cpu.bus.dma_dummy = true;
+                        }
+                    }
+                }
+            } else {
+                self.cpu.clock();
+            }
         }
         if self.cpu.bus.get_ppu().nmi {
             self.cpu.bus.get_ppu().nmi = false;
             self.cpu.nmi();
         }
+        self.cycles = self.cycles + 1;
     }
 
     fn draw_ram(&mut self, engine: &mut PGE, x: i32, y: i32, address: u16, rows: i32, cols: i32) {

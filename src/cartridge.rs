@@ -125,7 +125,7 @@ impl Cartridge {
     // Communications with ppu bus
     pub fn ppu_read(&self, addr: u16, data: &mut u8) -> bool {
         let mut mapped_addr = 0 as u32;
-        if (self.p_mapper).ppu_map_read(addr, &mut mapped_addr) {
+        if self.p_mapper.ppu_map_read(addr, &mut mapped_addr) {
             *data = self.v_chr_memory[mapped_addr as usize];
             return true;
         }
@@ -133,7 +133,7 @@ impl Cartridge {
     }
     pub fn ppu_write(&mut self, addr: usize, data: u8) -> bool {
         let mut mapped_addr = 0 as u32;
-        if (self.p_mapper).ppu_map_write(addr as u16, &mut mapped_addr) {
+        if self.p_mapper.ppu_map_write(addr as u16, &mut mapped_addr) {
             self.v_chr_memory[mapped_addr as usize] = data;
             return true;
         }

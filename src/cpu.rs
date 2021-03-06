@@ -2,6 +2,10 @@ use crate::bus::*;
 use crate::util::*;
 use indexmap::IndexMap;
 
+// For Logging: 
+// use std::io::Write;
+// use crate::util::hex;
+
 pub enum FLAGS6502 {
     C = (1 << 0), // Carry Bit
     Z = (1 << 1), // Zero
@@ -720,16 +724,14 @@ impl Cpu {
 
             let addrfunc = instr.addrmode;
             let operfunc = instr.operate;
-
             let additional_cycle1 = addrfunc(self);
             let additional_cycle2 = operfunc(self);
 
             self.cycles = self.cycles + (additional_cycle1 & additional_cycle2);
+
             self.set_flag(FLAGS6502::U, true);
         }
-        if self.cycles > 0 {
-            self.cycles = self.cycles - 1;
-        }
+        self.cycles = self.cycles - 1;
     }
 
     pub fn is_complete(&mut self) -> bool {
@@ -763,23 +765,23 @@ impl Cpu {
     }
 
     /// interrupt only if I=0
-    // fn irq(&mut self) {
-    //     if self.get_flag(FLAGS6502::I) == 0 {
-    //         self.push_to_stack(((self.pc >> 8) & 0x00FF) as u8);
-    //         self.push_to_stack((self.pc & 0x00FF) as u8);
+    fn _irq(&mut self) {
+        if self.get_flag(FLAGS6502::I) == 0 {
+            self.push_to_stack(((self.pc >> 8) & 0x00FF) as u8);
+            self.push_to_stack((self.pc & 0x00FF) as u8);
 
-    //         self.set_flag(FLAGS6502::B, false);
-    //         self.set_flag(FLAGS6502::U, true);
-    //         self.set_flag(FLAGS6502::I, true);
-    //         self.push_to_stack(self.status);
+            self.set_flag(FLAGS6502::B, false);
+            self.set_flag(FLAGS6502::U, true);
+            self.set_flag(FLAGS6502::I, true);
+            self.push_to_stack(self.status);
 
-    //         self.addr_abs = 0xFFFE;
-    //         let lo = self.read(self.addr_abs + 0, false);
-    //         let hi = self.read(self.addr_abs + 1, false);
-    //         self.pc = ((hi as u16) << 8) | (lo as u16);
-    //         self.cycles = 7;
-    //     }
-    // }
+            self.addr_abs = 0xFFFE;
+            let lo = self.read(self.addr_abs + 0, false);
+            let hi = self.read(self.addr_abs + 1, false);
+            self.pc = ((hi as u16) << 8) | (lo as u16);
+            self.cycles = 7;
+        }
+    }
 
     /// Non maskable interrupt
     pub fn nmi(&mut self) {
@@ -799,12 +801,11 @@ impl Cpu {
         self.cycles = 8;
     }
 
-    fn fetch(&mut self) -> u8 {
-        let opsize = usize::from(self.opcode);
+    fn fetch(&mut self) {
+        let opsize = self.opcode as usize;
         if self.lookup[opsize].addrmode as usize != Self::IMP as usize {
             self.fetched = self.read(self.addr_abs, false);
         }
-        return self.fetched;
     }
 
     pub fn new() -> Self {
@@ -1103,7 +1104,8 @@ impl Cpu {
     }
 
     pub fn read(&mut self, addr: u16, b_read_only: bool) -> u8 {
-        return self.bus.read(usize::from(addr), b_read_only);
+        let data = self.bus.read(usize::from(addr), b_read_only);
+        return data;
     }
 
     pub fn write(&mut self, addr: usize, data: u8) {
