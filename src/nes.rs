@@ -3,11 +3,12 @@ use crate::cpu::*;
 use crate::util::*;
 use chrono::Utc;
 use minifb::Key;
+use pge::audio::Audio;
 use pge::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-// For Logging: 
+// For Logging:
 // use std::io::Write;
 // use crate::util::hex;
 
@@ -19,7 +20,11 @@ pub struct Nes {
     draw_mode: bool,
     residual_time: f32,
     cycles: u128,
+
+    accumulated_time: f32,
 }
+
+static mut nesptr: *mut Nes = 0 as *mut Nes;
 
 impl State for Nes {
     fn on_user_create(&mut self) -> bool {
@@ -29,15 +34,29 @@ impl State for Nes {
         self.cpu.reset();
 
         // self.cpu.disassemble(0x0000, 0xFFFF);
-
+        unsafe {
+            nesptr = self;
+        }
+        self.cpu.bus.set_sample_frequency(44100);
+        let handle = std::thread::spawn(move || {
+            let mut audio = Audio::new();
+            audio.initialise_audio(44100, 1, 8, 512);
+            audio.set_user_synth_function(Self::sound_out);
+            audio.audio_thread();
+        });
         return true;
     }
-    // fn on_user_destroy(&mut self) -> bool {
-    //     return true;
-    // }
+
+    fn on_user_destroy(&mut self) {}
 
     fn on_user_update(&mut self, engine: &mut PGE, elapsed: f32) -> bool {
-        engine.clear(&DARK_BLUE);
+        // engine.clear(&DARK_BLUE);
+        self.accumulated_time = self.accumulated_time + elapsed;
+        
+        if self.accumulated_time >= 1.0 / 60.0
+		{
+			self.accumulated_time = self.accumulated_time - (1.0 / 60.0);
+		}
 
         if engine.get_key(Key::P).pressed {
             self.selected_palette = (self.selected_palette + 1) & 0x07;
@@ -47,6 +66,7 @@ impl State for Nes {
         }
 
         self.cpu.bus.controller[0] = 0x00;
+        self.cpu.bus.controller[1] = 0x00;
         self.set_controller(engine.get_key(Key::X).held, 0x80);
         self.set_controller(engine.get_key(Key::Z).held, 0x40);
         self.set_controller(engine.get_key(Key::A).held, 0x20);
@@ -56,56 +76,56 @@ impl State for Nes {
         self.set_controller(engine.get_key(Key::Left).held, 0x02);
         self.set_controller(engine.get_key(Key::Right).held, 0x01);
 
-        if self.emulation_run {
-            if self.residual_time > 0.0 {
-                self.residual_time = self.residual_time - elapsed;
-            } else {
-                self.residual_time = self.residual_time + (1.0 / 60.0) - elapsed;
-                let start_time = Utc::now().time();
-                self.clock();
-                let mut k = 0;
-                while !self.cpu.bus.get_ppu().frame_complete {
-                    self.clock();
-                    k = k + 1;
-                }
-                let end_time = Utc::now().time();
-                let diff = end_time - start_time;
-                println!(
-                    "{} cycles took {} , with {} per frame",
-                    k,
-                    diff,
-                    (diff.num_milliseconds() as f32) / (k as f32)
-                );
+        // if self.emulation_run {
+        // if self.residual_time > 0.0 {
+        //     self.residual_time = self.residual_time - elapsed;
+        // } else {
+        //     self.residual_time = self.residual_time + (1.0 / 60.0) - elapsed;
+        //     let start_time = Utc::now().time();
+        //     self.clock();
+        //     let mut k = 0;
+        //     while !self.cpu.bus.get_ppu().frame_complete {
+        //         self.clock();
+        //         k = k + 1;
+        //     }
+        //     let end_time = Utc::now().time();
+        //     let diff = end_time - start_time;
+        //     println!(
+        //         "{} cycles took {} , with {} per frame",
+        //         k,
+        //         diff,
+        //         (diff.num_milliseconds() as f32) / (k as f32)
+        //     );
 
-                self.cpu.bus.get_ppu().frame_complete = false;
-            }
-        } else {
-            if engine.get_key(Key::C).pressed {
-                println!("C");
-                self.clock();
-                while !self.cpu.is_complete() {
-                    self.clock();
-                }
-                self.clock();
-                while self.cpu.is_complete() {
-                    self.clock();
-                }
-            }
+        //     self.cpu.bus.get_ppu().frame_complete = false;
+        // }
+        // } else {
+        //     if engine.get_key(Key::C).pressed {
+        //         println!("C");
+        //         self.clock();
+        //         while !self.cpu.is_complete() {
+        //             self.clock();
+        //         }
+        //         self.clock();
+        //         while self.cpu.is_complete() {
+        //             self.clock();
+        //         }
+        //     }
 
-            if engine.get_key(Key::F).pressed {
-                println!("F");
-                self.clock();
-                while !self.cpu.bus.get_ppu().frame_complete {
-                    self.clock();
-                }
-                self.clock();
-                while !self.cpu.is_complete() {
-                    self.clock();
-                }
+        //     if engine.get_key(Key::F).pressed {
+        //         println!("F");
+        //         self.clock();
+        //         while !self.cpu.bus.get_ppu().frame_complete {
+        //             self.clock();
+        //         }
+        //         self.clock();
+        //         while !self.cpu.is_complete() {
+        //             self.clock();
+        //         }
 
-                self.cpu.bus.get_ppu().frame_complete = false;
-            }
-        }
+        //         self.cpu.bus.get_ppu().frame_complete = false;
+        //     }
+        // }
 
         if engine.get_key(Key::Space).pressed {
             self.emulation_run = !self.emulation_run;
@@ -118,7 +138,7 @@ impl State for Nes {
 
         // self.draw_ram(engine, 516, 72, 0, 10, 10);
 
-        let swatch_size = 6;
+        // let swatch_size = 6;
         // for p in 0..8 {
         //     for s in 0..4 {
         //         engine.fill_rect(
@@ -140,29 +160,29 @@ impl State for Nes {
 
         // self.draw_code(engine, 516, 72, 26);
 
-        for i in 0..48 {
-            let s = hex2(i)
-                + ": ("
-                + &self
-                    .cpu
-                    .bus
-                    .get_ppu()
-                    .get_oam((i * 4 + 3) as usize)
-                    .to_string()
-                + ", "
-                + &self
-                    .cpu
-                    .bus
-                    .get_ppu()
-                    .get_oam((i * 4 + 0) as usize)
-                    .to_string()
-                + ") "
-                + "ID: "
-                + &hex2(self.cpu.bus.get_ppu().get_oam((i * 4 + 1) as usize)).to_string()
-                + " AT: "
-                + &hex2(self.cpu.bus.get_ppu().get_oam((i * 4 + 2) as usize)).to_string();
-            engine.draw_string(516, 4 + (i as i32) * 10, &String::from(s), &WHITE, 1);
-        }
+        // for i in 0..48 {
+        //     let s = hex2(i)
+        //         + ": ("
+        //         + &self
+        //             .cpu
+        //             .bus
+        //             .get_ppu()
+        //             .get_oam((i * 4 + 3) as usize)
+        //             .to_string()
+        //         + ", "
+        //         + &self
+        //             .cpu
+        //             .bus
+        //             .get_ppu()
+        //             .get_oam((i * 4 + 0) as usize)
+        //             .to_string()
+        //         + ") "
+        //         + "ID: "
+        //         + &hex2(self.cpu.bus.get_ppu().get_oam((i * 4 + 1) as usize)).to_string()
+        //         + " AT: "
+        //         + &hex2(self.cpu.bus.get_ppu().get_oam((i * 4 + 2) as usize)).to_string();
+        //     engine.draw_string(516, 4 + (i as i32) * 10, &String::from(s), &WHITE, 1);
+        // }
 
         engine.draw_sprite(0, 0, &self.cpu.bus.get_ppu().spr_screen, 2);
 
@@ -179,31 +199,31 @@ impl State for Nes {
         // engine.draw_sprite(516, 348, sp1, 1);
         // engine.draw_sprite(648, 348, sp2, 1);
 
-        if self.draw_mode {
-            for y in 0..30 {
-                for x in 0..32 {
-                    // let id = self.cpu.bus.get_ppu().tbl_name[0][(y * 32 + x) as usize];
-                    // engine.draw_parital_sprite(
-                    //     x * 16,
-                    //     y * 16,
-                    //     sp2,
-                    //     ((id & 0x0F) << 3) as i32,
-                    //     (((id >> 4) & 0x0F) << 3) as i32,
-                    //     8,
-                    //     8,
-                    //     2,
-                    // );
-                    // engine.draw_rect(x * 16, y * 16, 16, 16, &WHITE);
-                    // engine.draw_string(
-                    //     x * 16,
-                    //     y * 16,
-                    //     &hex2(id),
-                    //     &WHITE,
-                    //     1
-                    // );
-                }
-            }
-        }
+        // if self.draw_mode {
+        //     for y in 0..30 {
+        //         for x in 0..32 {
+        // let id = self.cpu.bus.get_ppu().tbl_name[0][(y * 32 + x) as usize];
+        // engine.draw_parital_sprite(
+        //     x * 16,
+        //     y * 16,
+        //     sp2,
+        //     ((id & 0x0F) << 3) as i32,
+        //     (((id >> 4) & 0x0F) << 3) as i32,
+        //     8,
+        //     8,
+        //     2,
+        // );
+        // engine.draw_rect(x * 16, y * 16, 16, 16, &WHITE);
+        // engine.draw_string(
+        //     x * 16,
+        //     y * 16,
+        //     &hex2(id),
+        //     &WHITE,
+        //     1
+        // );
+        //     }
+        // }
+        // }
         return true;
     }
 }
@@ -218,11 +238,28 @@ impl Nes {
             selected_palette: 0,
             draw_mode: false,
             cycles: 0,
+            accumulated_time: 0.0,
         };
     }
 
-    fn clock(&mut self) {
+    //Static sound functions
+    pub fn sound_out(channel: u32, _global_time: f32, _time_step: f32) -> f32 {
+        unsafe {
+            if channel == 0 {
+                while !(*nesptr).clock() {}
+                return ((*nesptr).cpu.bus.audio_sample) as f32;
+            } else {
+                return 0.0;
+            }
+        }
+    }
+
+    fn clock(&mut self) -> bool {
+
         self.cpu.bus.get_ppu().clock();
+        
+        self.cpu.bus.apu.clock();
+        
         if self.cycles % 3 == 0 {
             if self.cpu.bus.dma_transfer {
                 if self.cpu.bus.dma_dummy {
@@ -251,11 +288,23 @@ impl Nes {
                 self.cpu.clock();
             }
         }
+
+        let mut sample_ready = false;
+        self.cpu.bus.audio_time += self.cpu.bus.audio_time_per_clock;
+        if self.cpu.bus.audio_time >= self.cpu.bus.audio_time_per_sample
+        {
+            self.cpu.bus.audio_time -= self.cpu.bus.audio_time_per_sample;
+            self.cpu.bus.audio_sample = self.cpu.bus.apu.get_output_sample();
+            sample_ready = true;
+        }
+
         if self.cpu.bus.get_ppu().nmi {
             self.cpu.bus.get_ppu().nmi = false;
             self.cpu.nmi();
         }
-        self.cycles = self.cycles + 1;
+        self.cycles += 1;
+
+        return sample_ready;
     }
 
     fn draw_ram(&mut self, engine: &mut PGE, x: i32, y: i32, address: u16, rows: i32, cols: i32) {
@@ -369,8 +418,10 @@ impl Nes {
     fn set_controller(&mut self, set: bool, key: u8) {
         if set {
             self.cpu.bus.controller[0] = self.cpu.bus.controller[0] | key;
+            self.cpu.bus.controller[1] = self.cpu.bus.controller[1] | key;
         } else {
             self.cpu.bus.controller[0] = self.cpu.bus.controller[0] | 0x00;
+            self.cpu.bus.controller[1] = self.cpu.bus.controller[1] | 0x00;
         }
     }
 }

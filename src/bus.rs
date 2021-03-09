@@ -1,14 +1,16 @@
+use crate::apu::Apu;
 use crate::cartridge::*;
 use crate::ppu::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-// For Logging: 
+// For Logging:
 // use std::io::Write;
 // use crate::util::hex;
 
 pub struct Bus {
     ppu: Ppu,
+    pub apu: Apu,
     cpu_ram: [u8; 2 * 1024],
     cart: Rc<RefCell<Cartridge>>,
     controller_state: [u8; 2],
@@ -21,12 +23,20 @@ pub struct Bus {
 
     pub dma_transfer: bool,
     pub dma_dummy: bool,
+
+    // For Audio
+    pub audio_time: f64,
+    pub audio_global_time: f64,
+    pub audio_time_per_clock: f64,
+    pub audio_time_per_sample: f64,
+    pub audio_sample: f64,
 }
 
 impl Bus {
     pub fn new() -> Self {
         let b = Bus {
             ppu: Ppu::new(),
+            apu: Apu::new(),
             cpu_ram: [0; 2 * 1024],
             cart: Rc::new(RefCell::new(Cartridge::default())),
             controller: [0; 2],
@@ -36,6 +46,12 @@ impl Bus {
             dma_data: 0,
             dma_transfer: false,
             dma_dummy: false,
+
+            audio_time: 0.0,
+            audio_global_time: 0.0,
+            audio_time_per_clock: 0.0,
+            audio_time_per_sample: 0.0,
+            audio_sample: 0.0,
         };
         return b;
     }
@@ -56,6 +72,8 @@ impl Bus {
             self.cpu_ram[addr & 0x07FF] = data;
         } else if addr >= 0x2000 && addr <= 0x3FFF {
             self.ppu.cpu_write(addr & 0x0007, data);
+        } else if addr <= 0x4013 || addr == 0x4015 || addr == 0x4017 {
+            self.apu.cpu_write(addr as u16, data);
         } else if addr == 0x4014 {
             self.dma_page = data;
             self.dma_addr = 0x00;
@@ -67,12 +85,13 @@ impl Bus {
     pub fn read(&mut self, addr: usize, rdonly: bool) -> u8 {
         let mut data = 0;
         if self.cart.as_ref().borrow_mut().cpu_read(addr, &mut data) {
-        }
-        else if addr <= 0x1FFF {
+        } else if addr <= 0x1FFF {
             data = self.cpu_ram[addr & 0x07FF];
         } else if addr >= 0x2000 && addr <= 0x3FFF {
             data = self.ppu.cpu_read(addr & 0x0007, rdonly);
-        } else if addr >= 0x4016 && addr <= 0x4017 {
+        } else if addr==0x4015{
+            data = self.apu.cpu_read(addr as u8);
+        }else if addr >= 0x4016 && addr <= 0x4017 {
             if (self.controller_state[addr & 0x0001] & 0x80) > 0 {
                 data = 1;
             } else {
@@ -82,6 +101,11 @@ impl Bus {
         }
 
         return data;
+    }
+
+    pub fn set_sample_frequency(&mut self, sample_rate: u32) {
+        self.audio_time_per_sample = 1.0 / (sample_rate as f64);
+        self.audio_time_per_clock = 1.0 / 5369318.0; // PPU Clock Frequency
     }
 
     pub fn insert_cartridge(&mut self, cart: Rc<RefCell<Cartridge>>) {

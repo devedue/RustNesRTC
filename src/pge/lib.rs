@@ -10,6 +10,7 @@ pub mod time;
 pub mod color;
 pub mod gfx2d;
 pub mod gfx3d;
+pub mod audio;
 
 
 // TODO: ordering on this is format dependent?
