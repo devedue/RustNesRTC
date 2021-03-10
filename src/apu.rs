@@ -12,7 +12,7 @@ struct Sequencer {
 impl Sequencer {
     fn clock(&mut self, enable: bool, func: fn(s: &mut u32) -> ()) -> u8 {
         if enable {
-            self.timer = self.timer - 1;
+            self.timer = self.timer.wrapping_sub(1);
             if self.timer == 0xFFFF {
                 self.timer = self.reload;
                 func(&mut self.sequence);
@@ -33,7 +33,7 @@ impl LengthCounter {
         if !enable {
             self.counter = 0;
         } else if self.counter > 0 && !halt {
-            self.counter = self.counter - 1;
+            self.counter = self.counter.wrapping_sub(1);
         }
         return self.counter;
     }
@@ -83,7 +83,7 @@ struct OscPulse {
     frequency: f64,
     dutycycle: f64,
     amplitude: f64,
-    harmonics: f64,
+    harmonics: u8,
 }
 
 impl Default for OscPulse {
@@ -92,7 +92,7 @@ impl Default for OscPulse {
             frequency: 0.0,
             dutycycle: 0.0,
             amplitude: 1.0,
-            harmonics: 20.0,
+            harmonics: 7,
         }
     }
 }
@@ -109,13 +109,10 @@ impl OscPulse {
             return -(20.785 * j * (j - 0.5) * (j - 1.0));
         };
 
-        for n in 1..(self.harmonics as i64) {
+        for n in 1..self.harmonics {
             let c = (n as f64) * self.frequency * 2.0 * PI * t;
             a += approxnegsin(c) / (n as f64);
             b += approxnegsin(c - p * (n as f64)) / (n as f64);
-
-            // a += -c.sin() / (n as f64);
-            // b += -(c - p * (n as f64)).sin() / (n as f64);
         }
 
         return (2.0 * self.amplitude / PI) * ((a - b) as f64);
@@ -187,6 +184,7 @@ struct Channel {
 pub struct Apu {
     pulse1: Channel,
     pulse2: Channel,
+    noise: Channel,
     clock_counter: u128,
     frame_clock_counter: u128,
     global_time: f64,
@@ -196,6 +194,13 @@ pub struct Apu {
 impl Apu {
     pub fn new() -> Self {
         return Apu {
+            noise: Channel {
+                seq: Sequencer {
+                    sequence: 0xDBDB,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
             length_table: [
                 10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14, 12, 16, 24, 18, 48,
                 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30,
@@ -292,14 +297,72 @@ impl Apu {
                 self.pulse2.lc.counter = self.length_table[((data & 0xF8) >> 3) as usize];
                 self.pulse2.env.start = true;
             }
-            0x4008 => {}
+            0x400C => {
+                self.noise.env.volume = (data & 0x0F) as u16;
+                self.noise.env.disable = (data & 0x10) > 0;
+                self.noise.halt = (data & 0x20) > 0;
+            }
+            0x400E => match data & 0x0F {
+                0x00 => {
+                    self.noise.seq.reload = 0;
+                }
+                0x01 => {
+                    self.noise.seq.reload = 4;
+                }
+                0x02 => {
+                    self.noise.seq.reload = 8;
+                }
+                0x03 => {
+                    self.noise.seq.reload = 16;
+                }
+                0x04 => {
+                    self.noise.seq.reload = 32;
+                }
+                0x05 => {
+                    self.noise.seq.reload = 64;
+                }
+                0x06 => {
+                    self.noise.seq.reload = 96;
+                }
+                0x07 => {
+                    self.noise.seq.reload = 128;
+                }
+                0x08 => {
+                    self.noise.seq.reload = 160;
+                }
+                0x09 => {
+                    self.noise.seq.reload = 202;
+                }
+                0x0A => {
+                    self.noise.seq.reload = 254;
+                }
+                0x0B => {
+                    self.noise.seq.reload = 380;
+                }
+                0x0C => {
+                    self.noise.seq.reload = 508;
+                }
+                0x0D => {
+                    self.noise.seq.reload = 1016;
+                }
+                0x0E => {
+                    self.noise.seq.reload = 2034;
+                }
+                0x0F => {
+                    self.noise.seq.reload = 4068;
+                }
+                _ => {}
+            },
             0x4015 => {
                 self.pulse1.enable = (data & 0x01) > 0;
                 self.pulse2.enable = (data & 0x02) > 0;
+                self.noise.enable = (data & 0x04) > 0;
             }
             0x400F => {
                 self.pulse1.env.start = true;
                 self.pulse2.env.start = true;
+                self.noise.env.start = true;
+                self.noise.lc.counter = self.length_table[((data & 0xF8) >> 3) as usize]
             }
             _ => {}
         }
@@ -353,7 +416,7 @@ impl Apu {
             });
 
             self.pulse1.osc.frequency = 1789773.0 / (16.0 * (self.pulse1.seq.reload + 1) as f64);
-            self.pulse1.osc.amplitude = (self.pulse1.env.output - 1) as f64 / 16.0;
+            self.pulse1.osc.amplitude = (self.pulse1.env.output.wrapping_sub(1)) as f64 / 16.0;
             self.pulse1.sample = self.pulse1.osc.sample(self.global_time);
 
             if self.pulse1.lc.counter > 0
@@ -378,12 +441,12 @@ impl Apu {
                 self.pulse2.lc.clock(self.pulse2.enable, self.pulse2.halt);
                 self.pulse2.sweep.clock(&mut self.pulse2.seq.reload, true);
             }
-            self.pulse2.seq.clock(self.pulse2.enable, |s| {
-                *s = ((*s & (0x0001 as u32)) << 7) | ((*s & (0x00FE as u32)) >> 1);
-            });
+            // self.pulse2.seq.clock(self.pulse2.enable, |s| {
+            //     *s = ((*s & (0x0001 as u32)) << 7) | ((*s & (0x00FE as u32)) >> 1);
+            // });
 
             self.pulse2.osc.frequency = 1789773.0 / (16.0 * (self.pulse2.seq.reload + 1) as f64);
-            self.pulse2.osc.amplitude = (self.pulse2.env.output - 1) as f64 / 16.0;
+            self.pulse2.osc.amplitude = (self.pulse2.env.output.wrapping_sub(1)) as f64 / 16.0;
             self.pulse2.sample = self.pulse2.osc.sample(self.global_time);
 
             if self.pulse2.lc.counter > 0
@@ -400,8 +463,35 @@ impl Apu {
             if !self.pulse2.enable {
                 self.pulse2.output = 0.0;
             }
-        }
 
+            // Noise
+
+            if quarter_frame_clock {
+                self.noise.env.clock(self.noise.halt);
+            }
+
+            if half_frame_clock {
+                // self.noise.lc.clock(self.noise.enable, self.noise.halt);
+            }
+            // self.noise.seq.clock(self.noise.enable, |s| {
+            //     *s = (((*s & 0x0001) ^ ((*s & 0x0002) >> 1)) << 14) | ((*s & 0x7FFF) >> 1);
+            // });
+
+            self.noise.osc.frequency = 1789773.0 / (16.0 * (self.noise.seq.reload + 1) as f64);
+            self.noise.osc.amplitude = (self.noise.env.output.wrapping_sub(1)) as f64 / 16.0;
+            // self.noise.sample = self.noise.osc.sample(self.global_time);
+
+            if self.noise.lc.counter > 0 && self.noise.seq.timer >= 8 {
+                self.noise.output =
+                    self.noise.seq.output as f64 * ((self.noise.env.output - 1) as f64 / 16.0);
+            } else {
+                self.noise.output = 0.0;
+            }
+
+            if !self.noise.enable {
+                self.noise.output = 0.0;
+            }
+        }
 
         self.pulse1.sweep.track(self.pulse1.seq.reload);
         self.pulse2.sweep.track(self.pulse2.seq.reload);
@@ -412,7 +502,9 @@ impl Apu {
     pub fn reset(&self) {}
 
     pub fn get_output_sample(&self) -> f64 {
-        return ((1.0 * self.pulse1.output) - 0.8) * 0.5 + ((1.0 * self.pulse2.output) - 0.8) * 0.5;
+        return ((1.0 * self.pulse1.output) - 0.8) * 0.1
+            + ((1.0 * self.pulse2.output) - 0.8) * 0.1
+            + (2.0 * (self.noise.output - 0.5)) * 0.1;
     }
 
     // fn sample_square_wave(f: f32, t: f32) -> f32 {

@@ -14,6 +14,9 @@ num-traits = ""
 chrono = "0.4.19"
 bitfield = ""
 indexmap = "1.6.1"
+rodio = "0.13.0"
+alto = "3.0.4"
+libc = "0.2.88"
 
 [dev-dependencies]
 rand = ""
