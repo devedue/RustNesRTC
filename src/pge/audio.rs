@@ -2,7 +2,7 @@ use alto::sys::ALint;
 use alto::sys::{ALCcontext, ALCdevice, ALuint, AlApi, ALshort};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread::JoinHandle;
+// use std::thread::JoinHandle;
 
 use libc::c_void;
 
@@ -20,9 +20,9 @@ pub struct Audio {
     block_samples: u32,
     block_memory: Vec<i16>,
 
-    audio_thread_handle: Option<JoinHandle<()>>,
+    // audio_thread_handle: Option<JoinHandle<()>>,
     audio_thread_active: AtomicBool,
-    global_time: AtomicBool,
+    // global_time: AtomicBool,
     func_user_synth: fn(u32, f32, f32) -> f32,
 }
 
@@ -41,9 +41,9 @@ impl Audio {
             block_memory: Vec::new(),
             al: Arc::new(AlApi::load_default().unwrap()),
 
-            audio_thread_handle: None,
+            // audio_thread_handle: None,
             audio_thread_active: AtomicBool::from(false),
-            global_time: AtomicBool::from(false),
+            // global_time: AtomicBool::from(false),
             func_user_synth: |_, _, _| -> f32 {
                 return 0.0;
             },
@@ -88,7 +88,7 @@ impl Audio {
                 .alGenBuffers(self.block_count as i32, self.buffers.as_mut_ptr());
 
             let mut new_source = 0;
-            self.al.alGenSources(1, &mut new_source);
+            self.al.alGenSources(channels as i32, &mut new_source);
             self.source = Some(new_source);
 
             for i in 0..self.block_count {
@@ -133,7 +133,7 @@ impl Audio {
     pub fn audio_thread(&mut self) {
         unsafe {
             let mut global_time = 0.0;
-            const TIME_STEP: f32 = 1.0 / 44100.0;
+            let time_step: f32 = 1.0 / (self.sample_rate as f32);
 
             let f_max_sample = 32766.0;
 
@@ -175,10 +175,10 @@ impl Audio {
                     // User Process
 
                     let func = self.func_user_synth;
-                    new_sample = (func(0, global_time, TIME_STEP).clamp(-1.0,1.0) * f_max_sample) as i16;
+                    new_sample = (func(0, global_time, time_step).clamp(-1.0,1.0) * f_max_sample) as i16;
                     self.block_memory[n as usize] = new_sample;
 
-                    global_time = global_time + TIME_STEP;
+                    global_time = global_time + time_step;
                 }
 
                 let last = self.available_buffers.pop().unwrap();
@@ -193,7 +193,7 @@ impl Audio {
                 );
                 // Add it to the OpenAL queue
                 self.al
-                    .alSourceQueueBuffers(self.source.unwrap(), 1, &last);
+                    .alSourceQueueBuffers(self.source.unwrap(), self.channels as i32, &last);
                 // Remove it from ours
                 
 

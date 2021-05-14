@@ -3,14 +3,14 @@ use crate::mapper::Mapper;
 #[derive(Default)]
 pub struct Mapper000 {
     n_prg_banks: u8,
-    n_chr_banks: u8,
+    _n_chr_banks: u8,
 }
 
 impl Mapper for Mapper000 {
     fn new(prg_banks: u8, chr_banks: u8) -> Mapper000 {
         return Mapper000 {
             n_prg_banks: prg_banks,
-            n_chr_banks: chr_banks,
+            _n_chr_banks: chr_banks,
             ..Default::default()
         };
     }

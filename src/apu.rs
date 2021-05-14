@@ -367,7 +367,7 @@ impl Apu {
             _ => {}
         }
     }
-    pub fn cpu_read(&self, addr: u8) -> u8 {
+    pub fn cpu_read(&self, _: u8) -> u8 {
         return 0;
     }
 
@@ -473,17 +473,17 @@ impl Apu {
             if half_frame_clock {
                 // self.noise.lc.clock(self.noise.enable, self.noise.halt);
             }
-            // self.noise.seq.clock(self.noise.enable, |s| {
-            //     *s = (((*s & 0x0001) ^ ((*s & 0x0002) >> 1)) << 14) | ((*s & 0x7FFF) >> 1);
-            // });
+            self.noise.seq.clock(self.noise.enable, |s| {
+                *s = (((*s & 0x0001) ^ ((*s & 0x0002) >> 1)) << 14) | ((*s & 0x7FFF) >> 1);
+            });
 
             self.noise.osc.frequency = 1789773.0 / (16.0 * (self.noise.seq.reload + 1) as f64);
             self.noise.osc.amplitude = (self.noise.env.output.wrapping_sub(1)) as f64 / 16.0;
-            // self.noise.sample = self.noise.osc.sample(self.global_time);
+            self.noise.sample = self.noise.osc.sample(self.global_time);
 
             if self.noise.lc.counter > 0 && self.noise.seq.timer >= 8 {
-                self.noise.output =
-                    self.noise.seq.output as f64 * ((self.noise.env.output - 1) as f64 / 16.0);
+                // self.noise.output =
+                    // self.noise.seq.output as f64 * ((self.noise.env.output - 1) as f64 / 16.0);
             } else {
                 self.noise.output = 0.0;
             }
@@ -499,12 +499,12 @@ impl Apu {
         self.clock_counter = self.clock_counter + 1;
     }
 
-    pub fn reset(&self) {}
+    pub fn _reset(&self) {}
 
     pub fn get_output_sample(&self) -> f64 {
-        return ((1.0 * self.pulse1.output) - 0.8) * 0.1
-            + ((1.0 * self.pulse2.output) - 0.8) * 0.1
-            + (2.0 * (self.noise.output - 0.5)) * 0.1;
+        return ((1.0 * self.pulse1.output) - 0.8) * 0.2
+            + ((1.0 * self.pulse2.output) - 0.8) * 0.2
+            + (2.0 * (self.noise.output - 0.5)) * 0.3;
     }
 
     // fn sample_square_wave(f: f32, t: f32) -> f32 {

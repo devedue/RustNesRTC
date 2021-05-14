@@ -72,7 +72,7 @@ impl Bus {
             self.cpu_ram[addr & 0x07FF] = data;
         } else if addr >= 0x2000 && addr <= 0x3FFF {
             self.ppu.cpu_write(addr & 0x0007, data);
-        } else if addr <= 0x4013 || addr == 0x4015 || addr == 0x4017 {
+        } else if addr <= 0x4013 || addr == 0x4015 {
             self.apu.cpu_write(addr as u16, data);
         } else if addr == 0x4014 {
             self.dma_page = data;

@@ -1,4 +1,4 @@
-use crate::apu::Apu;
+// use crate::apu::Apu;
 use crate::bus::*;
 use crate::util::*;
 use indexmap::IndexMap;
@@ -735,9 +735,9 @@ impl Cpu {
         self.cycles = self.cycles - 1;
     }
 
-    pub fn is_complete(&mut self) -> bool {
-        return self.cycles == 0;
-    }
+    // pub fn is_complete(&mut self) -> bool {
+    //     return self.cycles == 0;
+    // }
 
     /// reset cpu to a known state
     pub fn reset(&mut self) {
@@ -1127,7 +1127,7 @@ impl Cpu {
         }
     }
 
-    pub fn disassemble(&mut self, nStart: u16, nStop: u16) {
+    pub fn _disassemble(&mut self, nStart: u16, nStop: u16) {
         let nStop = nStop as u32;
         let mut addr = nStart as u32;
         let mut value: u8;

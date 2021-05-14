@@ -1,12 +1,17 @@
 use crate::cartridge::Cartridge;
 use crate::cpu::*;
+use crate::socket::RemoteServer;
 use crate::util::*;
-use chrono::Utc;
+// use chrono::Utc;
 use minifb::Key;
 use pge::audio::Audio;
 use pge::*;
 use std::cell::RefCell;
+use std::io::{Read, Write};
+use std::ops::DerefMut;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 // For Logging:
 // use std::io::Write;
@@ -18,27 +23,114 @@ pub struct Nes {
     pub selected_palette: u8,
     emulation_run: bool,
     draw_mode: bool,
-    residual_time: f32,
+    // residual_time: f32,
     cycles: u128,
+
+    player1: bool,
+    last_p1_send: u8,
+    last_p2_send: u8,
 
     accumulated_time: f32,
 }
 
-static mut nesptr: *mut Nes = 0 as *mut Nes;
+static mut NES_PTR: *mut Nes = 0 as *mut Nes;
+static mut SOCKET_PTR: Option<Arc<Mutex<RemoteServer>>> = None;
 
 impl State for Nes {
     fn on_user_create(&mut self) -> bool {
         self.cpu = Cpu::new();
-        self.cart = Rc::new(RefCell::new(Cartridge::new("smb.nes")));
+        self.cart = Rc::new(RefCell::new(Cartridge::new("spartan.nes")));
         self.cpu.bus.insert_cartridge(self.cart.clone());
         self.cpu.reset();
+        let socket = RemoteServer::new();
+        unsafe {
+            SOCKET_PTR = Some(Arc::new(Mutex::new(socket)));
+            std::thread::spawn(|| match &SOCKET_PTR {
+                Some(s) => {
+                    let mut guard = s.lock().unwrap();
+                    let server = guard.deref_mut();
+                    (*NES_PTR).set_player1(RemoteServer::connect_or_start(server));
+                    println!("Stop listening");
+                }
+                None => {}
+            });
+        }
+
+        std::thread::spawn(move || {
+            unsafe {
+                loop {
+                    match &SOCKET_PTR {
+                        Some(s) => {
+                            // println!("Getting lock for read");
+                            let server = s.lock().unwrap();
+                            // println!("Got lock for read");
+                            let mut data: [u8; 2] = [0; 2];
+                            match server.stream.as_ref() {
+                                Some(mut stream) => {
+                                    match stream.read_exact(&mut data) {
+                                        Ok(_) => {
+                                            (*NES_PTR).set_controller_state(data[0], data[1]);
+                                            // self.cpu.bus.controller[0] = data[0];
+                                            // println!("read success");
+                                        }
+                                        Err(_) => {
+                                            // println!("read error{}", e);
+                                        }
+                                    }
+                                }
+                                None => {}
+                            }
+                            // println!("Read Complete");
+                        }
+                        None => {}
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(33));
+                }
+            }
+        });
+
+        // std::thread::spawn(move || unsafe {
+        //     let mut lastp1 = 0;
+        //     let mut lastp2 = 0;
+        //     loop {
+        //         match &SOCKET_PTR {
+        //             Some(s) => {
+        //                 // println!("Getting lock for write");
+        //                 let server = s.lock().unwrap();
+        //                 // println!("Got lock for write");
+        //                 let data = (*NES_PTR).get_controllers();
+        //                 if lastp1 == data[0] && lastp2 == data[1] {
+        //                     continue;
+        //                 } else {
+        //                     match server.stream.as_ref() {
+        //                         Some(mut stream) => match stream.write(&data) {
+        //                             Ok(_) => {
+        //                                 lastp1 = data[0];
+        //                                 lastp2 = data[1];
+        //                                 // println!("write success");
+        //                             }
+        //                             Err(e) => {
+        //                                 // println!("write error{}", e);
+        //                             }
+        //                         },
+        //                         None => {}
+        //                     }
+        //                 }
+        //                 // println!("Write Complete");
+        //             }
+        //             None => {}
+        //         }
+        //         std::thread::sleep(std::time::Duration::from_millis(33));
+        //     }
+        // });
+
+        unsafe {
+            NES_PTR = self;
+        }
 
         // self.cpu.disassemble(0x0000, 0xFFFF);
-        unsafe {
-            nesptr = self;
-        }
         self.cpu.bus.set_sample_frequency(44100);
-        let handle = std::thread::spawn(move || {
+        std::thread::spawn(move || {
             let mut audio = Audio::new();
             audio.initialise_audio(44100, 1, 8, 512);
             audio.set_user_synth_function(Self::sound_out);
@@ -52,21 +144,12 @@ impl State for Nes {
     fn on_user_update(&mut self, engine: &mut PGE, elapsed: f32) -> bool {
         // engine.clear(&DARK_BLUE);
         self.accumulated_time = self.accumulated_time + elapsed;
-        
-        if self.accumulated_time >= 1.0 / 60.0
-		{
-			self.accumulated_time = self.accumulated_time - (1.0 / 60.0);
-		}
 
-        if engine.get_key(Key::P).pressed {
-            self.selected_palette = (self.selected_palette + 1) & 0x07;
-        }
-        if engine.get_key(Key::M).pressed {
-            self.draw_mode = !self.draw_mode;
+        if self.accumulated_time >= 1.0 / 60.0 {
+            self.accumulated_time = self.accumulated_time - (1.0 / 60.0);
         }
 
         self.cpu.bus.controller[0] = 0x00;
-        self.cpu.bus.controller[1] = 0x00;
         self.set_controller(engine.get_key(Key::X).held, 0x80);
         self.set_controller(engine.get_key(Key::Z).held, 0x40);
         self.set_controller(engine.get_key(Key::A).held, 0x20);
@@ -75,6 +158,18 @@ impl State for Nes {
         self.set_controller(engine.get_key(Key::Down).held, 0x04);
         self.set_controller(engine.get_key(Key::Left).held, 0x02);
         self.set_controller(engine.get_key(Key::Right).held, 0x01);
+        if engine.get_key(Key::Space).pressed {
+            self.emulation_run = !self.emulation_run;
+        }
+        if engine.get_key(Key::R).pressed {
+            self.cpu.reset();
+        }
+        if engine.get_key(Key::P).pressed {
+            self.selected_palette = (self.selected_palette + 1) & 0x07;
+        }
+        if engine.get_key(Key::M).pressed {
+            self.draw_mode = !self.draw_mode;
+        }
 
         // if self.emulation_run {
         // if self.residual_time > 0.0 {
@@ -126,13 +221,6 @@ impl State for Nes {
         //         self.cpu.bus.get_ppu().frame_complete = false;
         //     }
         // }
-
-        if engine.get_key(Key::Space).pressed {
-            self.emulation_run = !self.emulation_run;
-        }
-        if engine.get_key(Key::R).pressed {
-            self.cpu.reset();
-        }
 
         // self.draw_cpu(engine, 516, 2);
 
@@ -234,11 +322,16 @@ impl Nes {
             cpu: Cpu::new(),
             cart: Rc::new(RefCell::new(Cartridge::default())),
             emulation_run: false,
-            residual_time: 0.0,
+            // residual_time: 0.0,
             selected_palette: 0,
             draw_mode: false,
             cycles: 0,
             accumulated_time: 0.0,
+
+            player1: true,
+
+            last_p1_send: 0,
+            last_p2_send: 0,
         };
     }
 
@@ -246,8 +339,8 @@ impl Nes {
     pub fn sound_out(channel: u32, _global_time: f32, _time_step: f32) -> f32 {
         unsafe {
             if channel == 0 {
-                while !(*nesptr).clock() {}
-                return ((*nesptr).cpu.bus.audio_sample) as f32;
+                while !(*NES_PTR).clock() {}
+                return ((*NES_PTR).cpu.bus.audio_sample) as f32;
             } else {
                 return 0.0;
             }
@@ -255,11 +348,8 @@ impl Nes {
     }
 
     fn clock(&mut self) -> bool {
-
         self.cpu.bus.get_ppu().clock();
-        
         self.cpu.bus.apu.clock();
-        
         if self.cycles % 3 == 0 {
             if self.cpu.bus.dma_transfer {
                 if self.cpu.bus.dma_dummy {
@@ -291,8 +381,7 @@ impl Nes {
 
         let mut sample_ready = false;
         self.cpu.bus.audio_time += self.cpu.bus.audio_time_per_clock;
-        if self.cpu.bus.audio_time >= self.cpu.bus.audio_time_per_sample
-        {
+        if self.cpu.bus.audio_time >= self.cpu.bus.audio_time_per_sample {
             self.cpu.bus.audio_time -= self.cpu.bus.audio_time_per_sample;
             self.cpu.bus.audio_sample = self.cpu.bus.apu.get_output_sample();
             sample_ready = true;
@@ -307,7 +396,7 @@ impl Nes {
         return sample_ready;
     }
 
-    fn draw_ram(&mut self, engine: &mut PGE, x: i32, y: i32, address: u16, rows: i32, cols: i32) {
+    fn _draw_ram(&mut self, engine: &mut PGE, x: i32, y: i32, address: u16, rows: i32, cols: i32) {
         let ramx = x;
         let mut ramy = y;
         let mut address = address;
@@ -323,7 +412,7 @@ impl Nes {
         }
     }
 
-    fn get_flag_color(&self, flag: FLAGS6502) -> &Pixel {
+    fn _get_flag_color(&self, flag: FLAGS6502) -> &Pixel {
         if self.cpu.get_flag(flag) > 0 {
             return &GREEN;
         } else {
@@ -331,7 +420,7 @@ impl Nes {
         }
     }
 
-    fn draw_code(&self, engine: &mut PGE, x: i32, y: i32, lines: i32) {
+    fn _draw_code(&self, engine: &mut PGE, x: i32, y: i32, lines: i32) {
         // let ind = self.mapAsm.index(&self.cpu.pc);
         let mut line_y = (lines >> 1) * 10 + y;
         {
@@ -366,18 +455,18 @@ impl Nes {
         }
     }
 
-    fn draw_cpu(&self, engine: &mut PGE, x: i32, y: i32) {
+    fn _draw_cpu(&self, engine: &mut PGE, x: i32, y: i32) {
         // let random = rand::random::<u16>();
         let st = "STATUS: ";
         engine.draw_string(x, y, &st.to_owned(), &WHITE, 1);
-        engine.draw_string(x + 64, y, "N", self.get_flag_color(FLAGS6502::N), 1);
-        engine.draw_string(x + 80, y, "V", self.get_flag_color(FLAGS6502::V), 1);
-        engine.draw_string(x + 96, y, "-", self.get_flag_color(FLAGS6502::U), 1);
-        engine.draw_string(x + 112, y, "B", self.get_flag_color(FLAGS6502::B), 1);
-        engine.draw_string(x + 128, y, "D", self.get_flag_color(FLAGS6502::D), 1);
-        engine.draw_string(x + 144, y, "I", self.get_flag_color(FLAGS6502::I), 1);
-        engine.draw_string(x + 160, y, "Z", self.get_flag_color(FLAGS6502::Z), 1);
-        engine.draw_string(x + 178, y, "C", self.get_flag_color(FLAGS6502::C), 1);
+        engine.draw_string(x + 64, y, "N", self._get_flag_color(FLAGS6502::N), 1);
+        engine.draw_string(x + 80, y, "V", self._get_flag_color(FLAGS6502::V), 1);
+        engine.draw_string(x + 96, y, "-", self._get_flag_color(FLAGS6502::U), 1);
+        engine.draw_string(x + 112, y, "B", self._get_flag_color(FLAGS6502::B), 1);
+        engine.draw_string(x + 128, y, "D", self._get_flag_color(FLAGS6502::D), 1);
+        engine.draw_string(x + 144, y, "I", self._get_flag_color(FLAGS6502::I), 1);
+        engine.draw_string(x + 160, y, "Z", self._get_flag_color(FLAGS6502::Z), 1);
+        engine.draw_string(x + 178, y, "C", self._get_flag_color(FLAGS6502::C), 1);
         engine.draw_string(
             x,
             y + 10,
@@ -417,11 +506,58 @@ impl Nes {
 
     fn set_controller(&mut self, set: bool, key: u8) {
         if set {
-            self.cpu.bus.controller[0] = self.cpu.bus.controller[0] | key;
-            self.cpu.bus.controller[1] = self.cpu.bus.controller[1] | key;
-        } else {
-            self.cpu.bus.controller[0] = self.cpu.bus.controller[0] | 0x00;
-            self.cpu.bus.controller[1] = self.cpu.bus.controller[1] | 0x00;
+            if self.player1 {
+                self.cpu.bus.controller[0] |= key;
+            } else {
+                self.cpu.bus.controller[1] |= key;
+            }
         }
+        // unsafe {
+        //     match &SOCKET_PTR {
+        //         Some(s) => {
+        //             let server = s.lock().unwrap();
+        //             let data = (*NES_PTR).get_controllers();
+        //             if (self.player1 && self.last_p1_send == data[0])
+        //                 || (!self.player1 && self.last_p2_send == data[1])
+        //             {
+        //                 return;
+        //             } else {
+        //                 match server.stream.as_ref() {
+        //                     Some(mut stream) => match stream.write(&data) {
+        //                         Ok(_) => {
+        //                             self.last_p1_send = data[0];
+        //                             self.last_p2_send = data[1];
+        //                             // println!("write success");
+        //                         }
+        //                         Err(_) => {
+        //                             // println!("write error{}", e);
+        //                         }
+        //                     },
+        //                     None => {}
+        //                 }
+        //             }
+        //             // println!("Write Complete");
+        //         }
+        //         None => {}
+        //     }
+        // }
+    }
+
+    pub fn set_controller_state(&mut self, p1: u8, p2: u8) {
+        if self.player1 {
+            // println!("p2 {} {}", p1, p2);
+            self.cpu.bus.controller[1] = p2;
+        } else {
+            // println!("p1 {} {}", p1, p2);
+            self.cpu.bus.controller[0] = p1;
+        }
+    }
+
+    pub fn get_controllers(&self) -> [u8; 2] {
+        [self.cpu.bus.controller[0], self.cpu.bus.controller[1]]
+    }
+
+    pub fn set_player1(&mut self, p1: bool) {
+        self.player1 = p1;
     }
 }

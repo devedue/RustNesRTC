@@ -104,7 +104,7 @@ pub struct Ppu {
     pal_screen: [Pixel; 0x40],
     pub spr_screen: Sprite,
     _spr_name_table: [Sprite; 2],
-    spr_pattern_table: [Sprite; 2],
+    _spr_pattern_table: [Sprite; 2],
     scan_line: i16,
     cycle: i16,
     pub counter: u128,
@@ -224,7 +224,7 @@ impl Ppu {
             ],
             spr_screen: Sprite::new(256, 240),
             _spr_name_table: [Sprite::new(256, 240), Sprite::new(256, 240)],
-            spr_pattern_table: [Sprite::new(256, 240), Sprite::new(256, 240)],
+            _spr_pattern_table: [Sprite::new(256, 240), Sprite::new(256, 240)],
             scan_line: 0,
             cycle: 0,
             frame_complete: false,
@@ -525,7 +525,7 @@ impl Ppu {
         return self.pal_screen[(i & 0x3F) as usize];
     }
 
-    pub fn get_pattern_table(&mut self, i: u8, palette: u8) -> Sprite {
+    pub fn _get_pattern_table(&mut self, i: u8, palette: u8) -> Sprite {
         for ty in 0..16 {
             for tx in 0..16 {
                 let offset = ty * 256 + tx * 16;
@@ -537,7 +537,7 @@ impl Ppu {
                         tile_lsb = tile_lsb >> 1;
                         tile_msb = tile_msb >> 1;
 
-                        self.spr_pattern_table[i as usize].set_pixel(
+                        self._spr_pattern_table[i as usize].set_pixel(
                             (tx * 8 + (7 - col)) as i32,
                             (ty * 8 + row) as i32,
                             &self.get_palette_color(palette, pixel),
@@ -547,7 +547,7 @@ impl Ppu {
             }
         }
 
-        return self.spr_pattern_table[i as usize].clone();
+        return self._spr_pattern_table[i as usize].clone();
     }
 
     // pub fn get_name_table(&self, i: usize) -> Sprite {
