@@ -2,7 +2,7 @@ use crate::cartridge::Cartridge;
 use crate::cpu::*;
 use crate::socket::RemoteServer;
 use crate::util::*;
-// use chrono::Utc;
+use chrono::Utc;
 use minifb::Key;
 use pge::audio::Audio;
 use pge::*;
@@ -23,7 +23,7 @@ pub struct Nes {
     pub selected_palette: u8,
     emulation_run: bool,
     draw_mode: bool,
-    // residual_time: f32,
+    residual_time: f32,
     cycles: u128,
 
     player1: bool,
@@ -34,95 +34,14 @@ pub struct Nes {
 }
 
 static mut NES_PTR: *mut Nes = 0 as *mut Nes;
-// static mut SOCKET_PTR: Option<Arc<Mutex<RemoteServer>>> = None;
 
 impl State for Nes {
+
     fn on_user_create(&mut self) -> bool {
         self.cpu = Cpu::new();
         self.cart = Rc::new(RefCell::new(Cartridge::new("nestest.nes")));
         self.cpu.bus.insert_cartridge(self.cart.clone());
         self.cpu.reset();
-        // let socket = RemoteServer::new();
-        // unsafe {
-        //     SOCKET_PTR = Some(Arc::new(Mutex::new(socket)));
-        //     std::thread::spawn(|| match &SOCKET_PTR {
-        //         Some(s) => {
-        //             let mut guard = s.lock().unwrap();
-        //             let server = guard.deref_mut();
-        //             (*NES_PTR).set_player1(RemoteServer::connect_or_start(server));
-        //             println!("Stop listening");
-        //         }
-        //         None => {}
-        //     });
-        // }
-
-        // std::thread::spawn(move || {
-        //     unsafe {
-        //         loop {
-        //             match &SOCKET_PTR {
-        //                 Some(s) => {
-        //                     // println!("Getting lock for read");
-        //                     let server = s.lock().unwrap();
-        //                     // println!("Got lock for read");
-        //                     let mut data: [u8; 2] = [0; 2];
-        //                     match server.stream.as_ref() {
-        //                         Some(mut stream) => {
-        //                             match stream.read_exact(&mut data) {
-        //                                 Ok(_) => {
-        //                                     (*NES_PTR).set_controller_state(data[0], data[1]);
-        //                                     // self.cpu.bus.controller[0] = data[0];
-        //                                     // println!("read success");
-        //                                 }
-        //                                 Err(_) => {
-        //                                     // println!("read error{}", e);
-        //                                 }
-        //                             }
-        //                         }
-        //                         None => {}
-        //                     }
-        //                     // println!("Read Complete");
-        //                 }
-        //                 None => {}
-        //             }
-        //             std::thread::sleep(std::time::Duration::from_millis(33));
-        //         }
-        //     }
-        // });
-
-        // std::thread::spawn(move || unsafe {
-        //     let mut lastp1 = 0;
-        //     let mut lastp2 = 0;
-        //     loop {
-        //         match &SOCKET_PTR {
-        //             Some(s) => {
-        //                 // println!("Getting lock for write");
-        //                 let server = s.lock().unwrap();
-        //                 // println!("Got lock for write");
-        //                 let data = (*NES_PTR).get_controllers();
-        //                 if lastp1 == data[0] && lastp2 == data[1] {
-        //                     continue;
-        //                 } else {
-        //                     match server.stream.as_ref() {
-        //                         Some(mut stream) => match stream.write(&data) {
-        //                             Ok(_) => {
-        //                                 lastp1 = data[0];
-        //                                 lastp2 = data[1];
-        //                                 // println!("write success");
-        //                             }
-        //                             Err(e) => {
-        //                                 // println!("write error{}", e);
-        //                             }
-        //                         },
-        //                         None => {}
-        //                     }
-        //                 }
-        //                 // println!("Write Complete");
-        //             }
-        //             None => {}
-        //         }
-        //         std::thread::sleep(std::time::Duration::from_millis(33));
-        //     }
-        // });
 
         unsafe {
             NES_PTR = self;
@@ -171,60 +90,38 @@ impl State for Nes {
             self.draw_mode = !self.draw_mode;
         }
 
-        // if self.emulation_run {
-        // if self.residual_time > 0.0 {
-        //     self.residual_time = self.residual_time - elapsed;
-        // } else {
-        //     self.residual_time = self.residual_time + (1.0 / 60.0) - elapsed;
-        //     let start_time = Utc::now().time();
-        //     self.clock();
-        //     let mut k = 0;
-        //     while !self.cpu.bus.get_ppu().frame_complete {
-        //         self.clock();
-        //         k = k + 1;
-        //     }
-        //     let end_time = Utc::now().time();
-        //     let diff = end_time - start_time;
-        //     println!(
-        //         "{} cycles took {} , with {} per frame",
-        //         k,
-        //         diff,
-        //         (diff.num_milliseconds() as f32) / (k as f32)
-        //     );
+        engine.draw_sprite(0, 0, &self.cpu.bus.get_ppu().spr_screen, 2);
 
-        //     self.cpu.bus.get_ppu().frame_complete = false;
-        // }
-        // } else {
-        //     if engine.get_key(Key::C).pressed {
-        //         println!("C");
-        //         self.clock();
-        //         while !self.cpu.is_complete() {
-        //             self.clock();
-        //         }
-        //         self.clock();
-        //         while self.cpu.is_complete() {
-        //             self.clock();
-        //         }
-        //     }
+        // self.draw_debug_stuff(engine);
+        
+        return true;
+    }
+}
 
-        //     if engine.get_key(Key::F).pressed {
-        //         println!("F");
-        //         self.clock();
-        //         while !self.cpu.bus.get_ppu().frame_complete {
-        //             self.clock();
-        //         }
-        //         self.clock();
-        //         while !self.cpu.is_complete() {
-        //             self.clock();
-        //         }
 
-        //         self.cpu.bus.get_ppu().frame_complete = false;
-        //     }
-        // }
+impl Nes {
+    pub fn new() -> Self {
+        return Nes {
+            cpu: Cpu::new(),
+            cart: Rc::new(RefCell::new(Cartridge::default())),
+            emulation_run: true,
+            residual_time: 0.0,
+            selected_palette: 0,
+            draw_mode: false,
+            cycles: 0,
+            accumulated_time: 0.0,
 
-        // self.draw_cpu(engine, 516, 2);
+            player1: true,
 
-        // self.draw_ram(engine, 516, 72, 0, 10, 10);
+            last_p1_send: 0,
+            last_p2_send: 0,
+        };
+    }
+
+    fn draw_debug_stuff(&mut self, engine: &mut PGE) {
+        // self._draw_cpu(engine, 516, 2);
+
+        // self._draw_ram(engine, 516, 72, 0, 10, 10);
 
         // let swatch_size = 6;
         // for p in 0..8 {
@@ -246,7 +143,7 @@ impl State for Nes {
         //     &WHITE,
         // );
 
-        // self.draw_code(engine, 516, 72, 26);
+        // self._draw_code(engine, 516, 72, 26);
 
         // for i in 0..48 {
         //     let s = hex2(i)
@@ -272,18 +169,16 @@ impl State for Nes {
         //     engine.draw_string(516, 4 + (i as i32) * 10, &String::from(s), &WHITE, 1);
         // }
 
-        engine.draw_sprite(0, 0, &self.cpu.bus.get_ppu().spr_screen, 2);
-
         // let sp1 = &self
         //     .cpu
         //     .bus
         //     .get_ppu()
-        //     .get_pattern_table(0, self.selected_palette);
+        //     ._get_pattern_table(0, self.selected_palette);
         // let sp2 = &self
         //     .cpu
         //     .bus
         //     .get_ppu()
-        //     .get_pattern_table(1, self.selected_palette);
+        //     ._get_pattern_table(1, self.selected_palette);
         // engine.draw_sprite(516, 348, sp1, 1);
         // engine.draw_sprite(648, 348, sp2, 1);
 
@@ -312,27 +207,6 @@ impl State for Nes {
         //     }
         // }
         // }
-        return true;
-    }
-}
-
-impl Nes {
-    pub fn new() -> Self {
-        return Nes {
-            cpu: Cpu::new(),
-            cart: Rc::new(RefCell::new(Cartridge::default())),
-            emulation_run: false,
-            // residual_time: 0.0,
-            selected_palette: 0,
-            draw_mode: false,
-            cycles: 0,
-            accumulated_time: 0.0,
-
-            player1: true,
-
-            last_p1_send: 0,
-            last_p2_send: 0,
-        };
     }
 
     //Static sound functions

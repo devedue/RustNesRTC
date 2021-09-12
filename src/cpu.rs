@@ -735,9 +735,9 @@ impl Cpu {
         self.cycles = self.cycles - 1;
     }
 
-    // pub fn is_complete(&mut self) -> bool {
-    //     return self.cycles == 0;
-    // }
+    pub fn is_complete(&mut self) -> bool {
+        return self.cycles == 0;
+    }
 
     /// reset cpu to a known state
     pub fn reset(&mut self) {
