@@ -34,60 +34,60 @@ pub struct Nes {
 }
 
 static mut NES_PTR: *mut Nes = 0 as *mut Nes;
-static mut SOCKET_PTR: Option<Arc<Mutex<RemoteServer>>> = None;
+// static mut SOCKET_PTR: Option<Arc<Mutex<RemoteServer>>> = None;
 
 impl State for Nes {
     fn on_user_create(&mut self) -> bool {
         self.cpu = Cpu::new();
-        self.cart = Rc::new(RefCell::new(Cartridge::new("spartan.nes")));
+        self.cart = Rc::new(RefCell::new(Cartridge::new("nestest.nes")));
         self.cpu.bus.insert_cartridge(self.cart.clone());
         self.cpu.reset();
-        let socket = RemoteServer::new();
-        unsafe {
-            SOCKET_PTR = Some(Arc::new(Mutex::new(socket)));
-            std::thread::spawn(|| match &SOCKET_PTR {
-                Some(s) => {
-                    let mut guard = s.lock().unwrap();
-                    let server = guard.deref_mut();
-                    (*NES_PTR).set_player1(RemoteServer::connect_or_start(server));
-                    println!("Stop listening");
-                }
-                None => {}
-            });
-        }
+        // let socket = RemoteServer::new();
+        // unsafe {
+        //     SOCKET_PTR = Some(Arc::new(Mutex::new(socket)));
+        //     std::thread::spawn(|| match &SOCKET_PTR {
+        //         Some(s) => {
+        //             let mut guard = s.lock().unwrap();
+        //             let server = guard.deref_mut();
+        //             (*NES_PTR).set_player1(RemoteServer::connect_or_start(server));
+        //             println!("Stop listening");
+        //         }
+        //         None => {}
+        //     });
+        // }
 
-        std::thread::spawn(move || {
-            unsafe {
-                loop {
-                    match &SOCKET_PTR {
-                        Some(s) => {
-                            // println!("Getting lock for read");
-                            let server = s.lock().unwrap();
-                            // println!("Got lock for read");
-                            let mut data: [u8; 2] = [0; 2];
-                            match server.stream.as_ref() {
-                                Some(mut stream) => {
-                                    match stream.read_exact(&mut data) {
-                                        Ok(_) => {
-                                            (*NES_PTR).set_controller_state(data[0], data[1]);
-                                            // self.cpu.bus.controller[0] = data[0];
-                                            // println!("read success");
-                                        }
-                                        Err(_) => {
-                                            // println!("read error{}", e);
-                                        }
-                                    }
-                                }
-                                None => {}
-                            }
-                            // println!("Read Complete");
-                        }
-                        None => {}
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(33));
-                }
-            }
-        });
+        // std::thread::spawn(move || {
+        //     unsafe {
+        //         loop {
+        //             match &SOCKET_PTR {
+        //                 Some(s) => {
+        //                     // println!("Getting lock for read");
+        //                     let server = s.lock().unwrap();
+        //                     // println!("Got lock for read");
+        //                     let mut data: [u8; 2] = [0; 2];
+        //                     match server.stream.as_ref() {
+        //                         Some(mut stream) => {
+        //                             match stream.read_exact(&mut data) {
+        //                                 Ok(_) => {
+        //                                     (*NES_PTR).set_controller_state(data[0], data[1]);
+        //                                     // self.cpu.bus.controller[0] = data[0];
+        //                                     // println!("read success");
+        //                                 }
+        //                                 Err(_) => {
+        //                                     // println!("read error{}", e);
+        //                                 }
+        //                             }
+        //                         }
+        //                         None => {}
+        //                     }
+        //                     // println!("Read Complete");
+        //                 }
+        //                 None => {}
+        //             }
+        //             std::thread::sleep(std::time::Duration::from_millis(33));
+        //         }
+        //     }
+        // });
 
         // std::thread::spawn(move || unsafe {
         //     let mut lastp1 = 0;

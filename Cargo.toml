@@ -13,18 +13,18 @@ opt-level = 3
 byteorder = "1.4.2"
 minifb = "0.15.3"
 image = "0.22.4"
-num-traits = ""
+num-traits = "0.2.14"
 chrono = "0.4.19"
-bitfield = ""
+bitfield = "0.13.2"
 indexmap = "1.6.1"
 rodio = "0.13.0"
 alto = "3.0.4"
 libc = "0.2.88"
 
 [dev-dependencies]
-rand = ""
+rand = "0.8.4"
 image = "0.22.4"
-rustfix = ""
+rustfix = "0.6.0"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.9", features = ["winuser", "windef","minwindef","dwmapi", "libloaderapi", "ntdef", "wingdi"] }

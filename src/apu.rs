@@ -441,9 +441,9 @@ impl Apu {
                 self.pulse2.lc.clock(self.pulse2.enable, self.pulse2.halt);
                 self.pulse2.sweep.clock(&mut self.pulse2.seq.reload, true);
             }
-            // self.pulse2.seq.clock(self.pulse2.enable, |s| {
-            //     *s = ((*s & (0x0001 as u32)) << 7) | ((*s & (0x00FE as u32)) >> 1);
-            // });
+            self.pulse2.seq.clock(self.pulse2.enable, |s| {
+                *s = ((*s & (0x0001 as u32)) << 7) | ((*s & (0x00FE as u32)) >> 1);
+            });
 
             self.pulse2.osc.frequency = 1789773.0 / (16.0 * (self.pulse2.seq.reload + 1) as f64);
             self.pulse2.osc.amplitude = (self.pulse2.env.output.wrapping_sub(1)) as f64 / 16.0;
@@ -471,7 +471,7 @@ impl Apu {
             }
 
             if half_frame_clock {
-                // self.noise.lc.clock(self.noise.enable, self.noise.halt);
+                self.noise.lc.clock(self.noise.enable, self.noise.halt);
             }
             self.noise.seq.clock(self.noise.enable, |s| {
                 *s = (((*s & 0x0001) ^ ((*s & 0x0002) >> 1)) << 14) | ((*s & 0x7FFF) >> 1);
@@ -482,8 +482,8 @@ impl Apu {
             self.noise.sample = self.noise.osc.sample(self.global_time);
 
             if self.noise.lc.counter > 0 && self.noise.seq.timer >= 8 {
-                // self.noise.output =
-                    // self.noise.seq.output as f64 * ((self.noise.env.output - 1) as f64 / 16.0);
+                self.noise.output =
+                    self.noise.seq.output as f64 * ((self.noise.env.output.wrapping_sub(1)) as f64 / 16.0);
             } else {
                 self.noise.output = 0.0;
             }
@@ -502,9 +502,9 @@ impl Apu {
     pub fn _reset(&self) {}
 
     pub fn get_output_sample(&self) -> f64 {
-        return ((1.0 * self.pulse1.output) - 0.8) * 0.2
-            + ((1.0 * self.pulse2.output) - 0.8) * 0.2
-            + (2.0 * (self.noise.output - 0.5)) * 0.3;
+        return ((1.0 * self.pulse1.output) - 0.8) * 0.4
+            + ((1.0 * self.pulse2.output) - 0.8) * 0.4
+            + ((2.0 * self.noise.output) - 0.5) * 0.2;
     }
 
     // fn sample_square_wave(f: f32, t: f32) -> f32 {
