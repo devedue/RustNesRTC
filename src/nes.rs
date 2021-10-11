@@ -1,17 +1,17 @@
 use crate::cartridge::Cartridge;
 use crate::cpu::*;
-use crate::socket::RemoteServer;
 use crate::util::*;
-use chrono::Utc;
+use bincode;
 use minifb::Key;
 use pge::audio::Audio;
 use pge::*;
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::io::{Read, Write};
-use std::ops::DerefMut;
+use std::convert::TryInto;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::Mutex;
+
+extern crate redis;
+use redis::Commands;
 
 // For Logging:
 // use std::io::Write;
@@ -23,23 +23,17 @@ pub struct Nes {
     pub selected_palette: u8,
     emulation_run: bool,
     draw_mode: bool,
-    residual_time: f32,
     cycles: u128,
-
     player1: bool,
-    last_p1_send: u8,
-    last_p2_send: u8,
-
     accumulated_time: f32,
 }
 
 static mut NES_PTR: *mut Nes = 0 as *mut Nes;
 
 impl State for Nes {
-
     fn on_user_create(&mut self) -> bool {
         self.cpu = Cpu::new();
-        self.cart = Rc::new(RefCell::new(Cartridge::new("nestest.nes")));
+        self.cart = Rc::new(RefCell::new(Cartridge::new("dk.nes")));
         self.cpu.bus.insert_cartridge(self.cart.clone());
         self.cpu.reset();
 
@@ -92,121 +86,35 @@ impl State for Nes {
 
         engine.draw_sprite(0, 0, &self.cpu.bus.get_ppu().spr_screen, 2);
 
+        let vecsprite = bincode::serialize(&self.cpu.bus.get_ppu().spr_screen).unwrap();
+        let arrsprite: [u8; 256 * 240 * 4 + 8 + 16] = vecsprite.as_slice().try_into().unwrap();
+        // self.redis_con.set::<String, &[u8], String>("active_sprite".to_string(), &arrsprite).unwrap();
+
+        // let got_sprite: Vec<u8> = self.redis_con.get("active_sprite").unwrap();
+        // let got_array: [u8; 256 * 240 * 4 + 8 + 16] = got_sprite.as_slice().try_into().unwrap();
+
+        let new_sprite: pge::Sprite = bincode::deserialize(&arrsprite).unwrap();
+        engine.draw_sprite(0, 0, &new_sprite, 2);
+
         // self.draw_debug_stuff(engine);
-        
         return true;
     }
 }
 
-
 impl Nes {
     pub fn new() -> Self {
+        // let redis = redis::Client::open("redis://127.0.0.1").unwrap();
         return Nes {
             cpu: Cpu::new(),
             cart: Rc::new(RefCell::new(Cartridge::default())),
             emulation_run: true,
-            residual_time: 0.0,
             selected_palette: 0,
             draw_mode: false,
             cycles: 0,
             accumulated_time: 0.0,
-
+            // redis_con: redis.get_connection().unwrap(),
             player1: true,
-
-            last_p1_send: 0,
-            last_p2_send: 0,
         };
-    }
-
-    fn draw_debug_stuff(&mut self, engine: &mut PGE) {
-        // self._draw_cpu(engine, 516, 2);
-
-        // self._draw_ram(engine, 516, 72, 0, 10, 10);
-
-        // let swatch_size = 6;
-        // for p in 0..8 {
-        //     for s in 0..4 {
-        //         engine.fill_rect(
-        //             516 + p * (swatch_size * 5) + s * swatch_size,
-        //             340,
-        //             swatch_size,
-        //             swatch_size,
-        //             &self.cpu.bus.get_ppu().get_palette_color(p as u8, s as u8),
-        //         );
-        //     }
-        // }
-        // engine.draw_rect(
-        //     (516 + (self.selected_palette as i32) * (swatch_size * 5) - 1).into(),
-        //     339,
-        //     swatch_size * 4,
-        //     swatch_size,
-        //     &WHITE,
-        // );
-
-        // self._draw_code(engine, 516, 72, 26);
-
-        // for i in 0..48 {
-        //     let s = hex2(i)
-        //         + ": ("
-        //         + &self
-        //             .cpu
-        //             .bus
-        //             .get_ppu()
-        //             .get_oam((i * 4 + 3) as usize)
-        //             .to_string()
-        //         + ", "
-        //         + &self
-        //             .cpu
-        //             .bus
-        //             .get_ppu()
-        //             .get_oam((i * 4 + 0) as usize)
-        //             .to_string()
-        //         + ") "
-        //         + "ID: "
-        //         + &hex2(self.cpu.bus.get_ppu().get_oam((i * 4 + 1) as usize)).to_string()
-        //         + " AT: "
-        //         + &hex2(self.cpu.bus.get_ppu().get_oam((i * 4 + 2) as usize)).to_string();
-        //     engine.draw_string(516, 4 + (i as i32) * 10, &String::from(s), &WHITE, 1);
-        // }
-
-        // let sp1 = &self
-        //     .cpu
-        //     .bus
-        //     .get_ppu()
-        //     ._get_pattern_table(0, self.selected_palette);
-        // let sp2 = &self
-        //     .cpu
-        //     .bus
-        //     .get_ppu()
-        //     ._get_pattern_table(1, self.selected_palette);
-        // engine.draw_sprite(516, 348, sp1, 1);
-        // engine.draw_sprite(648, 348, sp2, 1);
-
-        // if self.draw_mode {
-        //     for y in 0..30 {
-        //         for x in 0..32 {
-        // let id = self.cpu.bus.get_ppu().tbl_name[0][(y * 32 + x) as usize];
-        // engine.draw_parital_sprite(
-        //     x * 16,
-        //     y * 16,
-        //     sp2,
-        //     ((id & 0x0F) << 3) as i32,
-        //     (((id >> 4) & 0x0F) << 3) as i32,
-        //     8,
-        //     8,
-        //     2,
-        // );
-        // engine.draw_rect(x * 16, y * 16, 16, 16, &WHITE);
-        // engine.draw_string(
-        //     x * 16,
-        //     y * 16,
-        //     &hex2(id),
-        //     &WHITE,
-        //     1
-        // );
-        //     }
-        // }
-        // }
     }
 
     //Static sound functions
@@ -417,7 +325,7 @@ impl Nes {
         // }
     }
 
-    pub fn set_controller_state(&mut self, p1: u8, p2: u8) {
+    pub fn _set_controller_state(&mut self, p1: u8, p2: u8) {
         if self.player1 {
             // println!("p2 {} {}", p1, p2);
             self.cpu.bus.controller[1] = p2;
@@ -427,11 +335,96 @@ impl Nes {
         }
     }
 
-    pub fn get_controllers(&self) -> [u8; 2] {
+    pub fn _get_controllers(&self) -> [u8; 2] {
         [self.cpu.bus.controller[0], self.cpu.bus.controller[1]]
     }
 
-    pub fn set_player1(&mut self, p1: bool) {
+    pub fn _set_player1(&mut self, p1: bool) {
         self.player1 = p1;
+    }
+
+    fn _draw_debug_stuff(&mut self, engine: &mut PGE) {
+        self._draw_cpu(engine, 516, 2);
+
+        self._draw_ram(engine, 516, 72, 0, 10, 10);
+
+        let swatch_size = 6;
+        for p in 0..8 {
+            for s in 0..4 {
+                engine.fill_rect(
+                    516 + p * (swatch_size * 5) + s * swatch_size,
+                    340,
+                    swatch_size,
+                    swatch_size,
+                    &self.cpu.bus.get_ppu().get_palette_color(p as u8, s as u8),
+                );
+            }
+        }
+        engine.draw_rect(
+            (516 + (self.selected_palette as i32) * (swatch_size * 5) - 1).into(),
+            339,
+            swatch_size * 4,
+            swatch_size,
+            &WHITE,
+        );
+
+        self._draw_code(engine, 516, 72, 26);
+
+        for i in 0..48 {
+            let s = hex2(i)
+                + ": ("
+                + &self
+                    .cpu
+                    .bus
+                    .get_ppu()
+                    .get_oam((i * 4 + 3) as usize)
+                    .to_string()
+                + ", "
+                + &self
+                    .cpu
+                    .bus
+                    .get_ppu()
+                    .get_oam((i * 4 + 0) as usize)
+                    .to_string()
+                + ") "
+                + "ID: "
+                + &hex2(self.cpu.bus.get_ppu().get_oam((i * 4 + 1) as usize)).to_string()
+                + " AT: "
+                + &hex2(self.cpu.bus.get_ppu().get_oam((i * 4 + 2) as usize)).to_string();
+            engine.draw_string(516, 4 + (i as i32) * 10, &String::from(s), &WHITE, 1);
+        }
+
+        let sp1 = &self
+            .cpu
+            .bus
+            .get_ppu()
+            ._get_pattern_table(0, self.selected_palette);
+        let sp2 = &self
+            .cpu
+            .bus
+            .get_ppu()
+            ._get_pattern_table(1, self.selected_palette);
+        engine.draw_sprite(516, 348, sp1, 1);
+        engine.draw_sprite(648, 348, sp2, 1);
+
+        if self.draw_mode {
+            for y in 0..30 {
+                for x in 0..32 {
+                    let id = self.cpu.bus.get_ppu().tbl_name[0][(y * 32 + x) as usize];
+                    engine.draw_parital_sprite(
+                        x * 16,
+                        y * 16,
+                        sp2,
+                        ((id & 0x0F) << 3) as i32,
+                        (((id >> 4) & 0x0F) << 3) as i32,
+                        8,
+                        8,
+                        2,
+                    );
+                    engine.draw_rect(x * 16, y * 16, 16, 16, &WHITE);
+                    engine.draw_string(x * 16, y * 16, &hex2(id), &WHITE, 1);
+                }
+            }
+        }
     }
 }

@@ -5,6 +5,7 @@ use minifb::{Window, WindowOptions, MouseMode, MouseButton, Scale, ScaleMode, Ke
 use std::time::Instant;
 use std::mem;
 use std::cmp;
+use serde::{Serialize,Deserialize};
 
 pub mod time;
 pub mod color;
@@ -14,7 +15,7 @@ pub mod audio;
 
 
 // TODO: ordering on this is format dependent?
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Pixel {
     pub b: u8,
     pub g: u8,
@@ -74,7 +75,7 @@ pub struct HWButton {
     pub held: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sprite {
     pub width: usize,
     pub height: usize,

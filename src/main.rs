@@ -1,5 +1,5 @@
-// #![allow(dead_code)]
-// #![windows_subsystem = "windows"]
+#![allow(dead_code)]
+#![windows_subsystem = "windows"]
 #![feature(untagged_unions)]
 #![feature(libc)]
 
@@ -15,6 +15,10 @@ mod socket;
 mod util;
 use nes::*;
 use pge::PGE;
+mod rtc;
+
+#[macro_use]
+extern crate lazy_static;
 
 fn main() {
     let mut nes = Nes::new();
