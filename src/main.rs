@@ -16,13 +16,19 @@ mod util;
 use nes::*;
 use pge::PGE;
 mod rtc;
+mod gui;
 
 #[macro_use]
 extern crate lazy_static;
 
-fn main() {
+fn start_nes() {
     let mut nes = Nes::new();
     let mut pge = PGE::construct("NES Emulator", 512, 480, 2, 2);
     pge.start(&mut nes);
-    // loop{};
+}
+
+fn main() {
+    println!("Start");
+    gui::MainMenu::start_program();
+    println!("End");
 }

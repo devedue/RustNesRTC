@@ -9,28 +9,27 @@ use tokio::sync::Mutex;
 use tokio::time::Duration;
 use webrtc::api::APIBuilder;
 use webrtc::data::data_channel::data_channel_message::DataChannelMessage;
-use webrtc::peer::configuration::Configuration;
-use webrtc::peer::ice::ice_candidate::{ICECandidate, ICECandidateInit};
-use webrtc::peer::ice::ice_server::ICEServer;
-use webrtc::peer::peer_connection::PeerConnection;
-use webrtc::peer::peer_connection_state::PeerConnectionState;
-use webrtc::peer::sdp::session_description::SessionDescription;
-use webrtc::peer::sdp::session_description::SessionDescriptionSerde;
+use webrtc::peer::configuration::RTCConfiguration;
+use webrtc::peer::ice::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
+use webrtc::peer::ice::ice_server::RTCIceServer;
+use webrtc::peer::peer_connection::RTCPeerConnection;
+use webrtc::peer::peer_connection_state::RTCPeerConnectionState;
+use webrtc::peer::sdp::session_description::RTCSessionDescription;
 
 lazy_static! {
-    static ref PEER_CONNECTION_MUTEX: Arc<Mutex<Option<Arc<PeerConnection>>>> =
+    static ref PEER_CONNECTION_MUTEX: Arc<Mutex<Option<Arc<RTCPeerConnection>>>> =
         Arc::new(Mutex::new(None));
-    static ref PENDING_CANDIDATES: Arc<Mutex<Vec<ICECandidate>>> = Arc::new(Mutex::new(vec![]));
+    static ref PENDING_CANDIDATES: Arc<Mutex<Vec<RTCIceCandidate>>> = Arc::new(Mutex::new(vec![]));
     static ref ADDRESS: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
     static ref SER: RTCServer =
-        RTCServer::new("127.0.0.1".to_string(), "default".to_string(), 60000);
+        RTCServer::new("127.0.0.1".to_owned(), "default".to_owned(), 60000);
 }
 
 async fn start_server() -> Result<()> {
     let ip2 = SER.ip.clone();
 
-    let config = Configuration {
-        ice_servers: vec![ICEServer {
+    let config = RTCConfiguration {
+        ice_servers: vec![RTCIceServer {
             ..Default::default()
         }],
         ..Default::default()
@@ -45,7 +44,7 @@ async fn start_server() -> Result<()> {
     let addr2 = SER.ip.clone();
 
     peer_connection
-        .on_ice_candidate(Box::new(move |c: Option<ICECandidate>| {
+        .on_ice_candidate(Box::new(move |c: Option<RTCIceCandidate>| {
             let peer_connection3 = Arc::clone(&peer_connection2);
             let pending_candidates3 = Arc::clone(&pending_candidates2);
             let addr3 = addr2.clone();
@@ -83,10 +82,10 @@ async fn start_server() -> Result<()> {
         .await?;
 
     peer_connection
-        .on_peer_connection_state_change(Box::new(move |s: PeerConnectionState| {
+        .on_peer_connection_state_change(Box::new(move |s: RTCPeerConnectionState| {
             print!("Peer Connection State has changed: {}\n", s);
 
-            if s == PeerConnectionState::Failed {
+            if s == RTCPeerConnectionState::Failed {
                 println!("Peer Connection has gone to failed exiting");
                 std::process::exit(0);
             }
@@ -108,7 +107,7 @@ async fn start_server() -> Result<()> {
 
                 tokio::select! {
                     _ = timeout.as_mut() =>{
-                        result = d2.send_text(SER.description.to_string()).await;
+                        result = d2.send_text(SER.description.to_owned()).await.map_err(Into::into);
                     }
                 };
             }
@@ -130,7 +129,7 @@ async fn start_server() -> Result<()> {
     let offer = peer_connection.create_offer(None).await?;
 
     // Send our offer to the HTTP server listening in the other process
-    let payload = match serde_json::to_string(&offer.serde) {
+    let payload = match serde_json::to_string(&offer) {
         Ok(p) => p,
         Err(err) => panic!("{}", err),
     };
@@ -158,6 +157,7 @@ async fn start_server() -> Result<()> {
     Ok(())
 }
 
+#[derive(Default)]
 pub struct RTCServer {
     channel: String,
     ip: String,
@@ -169,11 +169,11 @@ pub struct RTCServer {
 impl RTCServer {
     pub fn new(ip: String, channel: String, port: u16) -> Self {
         RTCServer {
-            channel: "default".to_string(),
+            channel: channel.to_owned(),
             ip: ip.clone(),
             port: port,
             players: [0; 2],
-            description: "".to_string(),
+            description: "".to_owned(),
         }
     }
 
@@ -181,7 +181,7 @@ impl RTCServer {
         self.description = description;
     }
 
-    async fn signal_candidate(&self, addr: &String, c: &ICECandidate) -> Result<()> {
+    async fn signal_candidate(&self, addr: &String, c: &RTCIceCandidate) -> Result<()> {
         let payload = c.to_json().await?.candidate;
         let req = match Request::builder()
             .method(Method::POST)
@@ -226,7 +226,7 @@ impl RTCServer {
                         Err(err) => panic!("{}", err),
                     };
                 if let Err(err) = pc
-                    .add_ice_candidate(ICECandidateInit {
+                    .add_ice_candidate(RTCIceCandidateInit {
                         candidate,
                         ..Default::default()
                     })
@@ -241,7 +241,7 @@ impl RTCServer {
             // A HTTP handler that processes a SessionDescription given to us from the other WebRTC-rs or Pion process
             (&Method::POST, "/sdp") => {
                 println!("remote_handler receive from /sdp");
-                let mut sdp = SessionDescription::default();
+                let mut sdp = RTCSessionDescription::default();
                 let sdp_str =
                     match std::str::from_utf8(&hyper::body::to_bytes(req.into_body()).await?) {
                         Ok(s) => s.to_owned(),

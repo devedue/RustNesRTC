@@ -234,7 +234,10 @@ impl PGE {
                                     scale: Scale::X1,
                                     borderless: false,
                                     resize: false,
-                                    title: true
+                                    title: true,
+                                    none: false,
+                                    topmost: false,
+                                    transparency: false
                                 })
                                 .unwrap_or_else(|e| {panic!("{}", e)}));
 
