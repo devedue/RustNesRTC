@@ -1,14 +1,19 @@
+use crate::rtc::DATA_CHANNEL_RX;
+use crate::rtc::DATA_CHANNEL_TX;
 use anyhow::Result;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Client;
-use hyper::{Body, Method, Request, Response, Server, StatusCode, Version};
+use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use interceptor::registry::Registry;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::time::Duration;
+use webrtc::api::interceptor_registry::register_default_interceptors;
+use webrtc::api::media_engine::MediaEngine;
+use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
-use webrtc::data::data_channel::data_channel_message::DataChannelMessage;
+use webrtc::data::data_channel::RTCDataChannel;
 use webrtc::peer::configuration::RTCConfiguration;
 use webrtc::peer::ice::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
 use webrtc::peer::ice::ice_server::RTCIceServer;
@@ -21,27 +26,56 @@ lazy_static! {
         Arc::new(Mutex::new(None));
     static ref PENDING_CANDIDATES: Arc<Mutex<Vec<RTCIceCandidate>>> = Arc::new(Mutex::new(vec![]));
     static ref ADDRESS: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
-    static ref SER: RTCServer =
-        RTCServer::new("127.0.0.1".to_owned(), "default".to_owned(), 60000);
+    pub static ref SERVER: Arc<Mutex<RTCServer>> = Arc::new(Mutex::new(RTCServer::new(
+        "localhost:50000".to_owned(),
+        "0.0.0.0:60000".to_owned()
+    )));
 }
 
-async fn start_server() -> Result<()> {
-    let ip2 = SER.ip.clone();
+pub async fn start_server(address: String) -> Result<()> {
+
+    // {
+    //     let mut cl = SERVER.lock().await;
+    //     (*cl).offer_address = address;
+    // }
+
+    let offer_addr = SERVER.lock().await.offer_address.to_owned();
+    let answer_addr = SERVER.lock().await.answer_address.to_owned();
+
+    {
+        let mut address_ref = ADDRESS.lock().await;
+        *address_ref = offer_addr.clone();
+    }
 
     let config = RTCConfiguration {
         ice_servers: vec![RTCIceServer {
+            //TODO: Possible remove stun for local
+            urls: vec!["stun:stun.1.google.com:19302".to_owned()],
             ..Default::default()
         }],
         ..Default::default()
     };
+    //TODO: Possibly remove media engine
+    let mut m = MediaEngine::default();
+    m.register_default_codecs()?;
 
-    let api = APIBuilder::new().build();
+    let mut registry = Registry::new();
+    registry = register_default_interceptors(registry, &mut m)?;
+
+    let mut s = SettingEngine::default();
+    s.detach_data_channels();
+
+    let api = APIBuilder::new()
+        .with_media_engine(m)
+        .with_interceptor_registry(registry)
+        .with_setting_engine(s)
+        .build();
 
     let peer_connection = Arc::new(api.new_peer_connection(config).await?);
 
     let peer_connection2 = Arc::clone(&peer_connection);
     let pending_candidates2 = Arc::clone(&PENDING_CANDIDATES);
-    let addr2 = SER.ip.clone();
+    let addr2 = offer_addr.clone();
 
     peer_connection
         .on_ice_candidate(Box::new(move |c: Option<RTCIceCandidate>| {
@@ -54,7 +88,7 @@ async fn start_server() -> Result<()> {
                     if desc.is_none() {
                         let mut cs = pending_candidates3.lock().await;
                         cs.push(c);
-                    } else if let Err(err) = (&SER).signal_candidate(&addr3, &c).await {
+                    } else if let Err(err) = RTCServer::signal_candidate(&addr3, &c).await {
                         assert!(false, "{}", err);
                     }
                 }
@@ -62,12 +96,17 @@ async fn start_server() -> Result<()> {
         }))
         .await;
 
+    println!("Listening on http://{}", answer_addr);
+    {
+        let mut pcm = PEER_CONNECTION_MUTEX.lock().await;
+        *pcm = Some(Arc::clone(&peer_connection));
+    }
+
     tokio::spawn(async move {
-        let addr = SocketAddr::from_str(&SER.ip).unwrap();
+        let addr = SocketAddr::from_str(&answer_addr).unwrap();
+        println!("Started {}", answer_addr);
         let service = make_service_fn(|_| async {
-            Ok::<_, hyper::Error>(service_fn(|req: Request<Body>| async move {
-                SER.remote_handler(req).await
-            }))
+            Ok::<_, hyper::Error>(service_fn(RTCServer::remote_handler))
         });
         let server = Server::bind(&addr).serve(service);
         // Run this server for... forever!
@@ -75,11 +114,6 @@ async fn start_server() -> Result<()> {
             eprintln!("server error: {}", e);
         }
     });
-
-    // Create a datachannel with label 'data'
-    let data_channel = peer_connection
-        .create_data_channel(&SER.channel, None)
-        .await?;
 
     peer_connection
         .on_peer_connection_state_change(Box::new(move |s: RTCPeerConnectionState| {
@@ -94,94 +128,65 @@ async fn start_server() -> Result<()> {
         }))
         .await;
 
-    let d1 = Arc::clone(&data_channel);
+    peer_connection
+        .on_data_channel(Box::new(move |d: Arc<RTCDataChannel>| {
+            let d_label = d.label().to_owned();
+            let d_id = d.id();
+            println!("New DataChannel {} {}", d_label, d_id);
 
-    data_channel.on_open(Box::new(move || {
-        print!("Data channel '{}'-'{}' open. Random messages will now be sent to any connected DataChannels every 5 seconds\n", d1.label(), d1.id());
-        let d2 = Arc::clone(&d1);
-        Box::pin(async move {
-            let mut result = Result::<usize>::Ok(0);
-            while result.is_ok() {
-                let timeout = tokio::time::sleep(Duration::from_millis(1));
-                tokio::pin!(timeout);
+            Box::pin(async move {
+                // Register channel opening handling
+                let d2 = Arc::clone(&d);
+                let d_label2 = d_label.clone();
+                let d_id2 = d_id;
+                d.on_open(Box::new(move || {
+                    println!("Data channel '{}'-'{}' open. ", d_label2, d_id2);
+                    Box::pin(async move {
+                        let raw = match d2.detach().await {
+                            Ok(raw) => raw,
+                            Err(err) => {
+                                println!("data channel detach got err: {}", err);
+                                return;
+                            }
+                        };
 
-                tokio::select! {
-                    _ = timeout.as_mut() =>{
-                        result = d2.send_text(SER.description.to_owned()).await.map_err(Into::into);
-                    }
-                };
-            }
-        })
-    })).await;
-
-    // Register text message handling
-    let d1 = Arc::clone(&data_channel);
-    data_channel
-        .on_message(Box::new(move |msg: DataChannelMessage| {
-            let msg_str = String::from_utf8(msg.data.to_vec()).unwrap();
-            print!("Message from DataChannel '{}': '{}'\n", d1.label(), msg_str);
-            SER.on_message(d1.label());
-            Box::pin(async {})
+                        println!("Trying to set data channel");
+                        let mut server = DATA_CHANNEL_RX.lock().await;
+                        *server = Some(Arc::clone(&raw));
+                        let mut server = DATA_CHANNEL_TX.lock().await;
+                        *server = Some(Arc::clone(&raw));
+                        println!("Set data channel");
+                    })
+                }))
+                .await;
+            })
         }))
         .await;
 
-    // Create an offer to send to the other process
-    let offer = peer_connection.create_offer(None).await?;
-
-    // Send our offer to the HTTP server listening in the other process
-    let payload = match serde_json::to_string(&offer) {
-        Ok(p) => p,
-        Err(err) => panic!("{}", err),
-    };
-    peer_connection.set_local_description(offer).await?;
-
-    let req = match Request::builder()
-        .method(Method::POST)
-        .uri(format!("http://{}/sdp", &ip2))
-        .header("content-type", "application/json; charset=utf-8")
-        .body(Body::from(payload))
-    {
-        Ok(req) => req,
-        Err(err) => panic!("{}", err),
-    };
-
-    let resp = match Client::new().request(req).await {
-        Ok(resp) => resp,
-        Err(err) => {
-            println!("{}", err);
-            return Err(err.into());
-        }
-    };
-    println!("Response: {}", resp.status());
+    println!("Pause till active");
 
     Ok(())
 }
 
 #[derive(Default)]
 pub struct RTCServer {
-    channel: String,
-    ip: String,
-    port: u16,
-    pub players: [u8; 2],
-    description: String,
+    offer_address: String,
+    answer_address: String,
 }
 
 impl RTCServer {
-    pub fn new(ip: String, channel: String, port: u16) -> Self {
+    pub fn new(offer_address: String, answer_address: String) -> Self {
         RTCServer {
-            channel: channel.to_owned(),
-            ip: ip.clone(),
-            port: port,
-            players: [0; 2],
-            description: "".to_owned(),
+            offer_address: offer_address.to_owned(),
+            answer_address: answer_address.to_owned(),
         }
     }
 
-    fn set_description(&mut self, description: String) {
-        self.description = description;
-    }
-
-    async fn signal_candidate(&self, addr: &String, c: &RTCIceCandidate) -> Result<()> {
+    async fn signal_candidate(addr: &String, c: &RTCIceCandidate) -> Result<()> {
+        println!(
+            "Signalling candidate on {}",
+            format!("http://{}/candidate", addr)
+        );
         let payload = c.to_json().await?.candidate;
         let req = match Request::builder()
             .method(Method::POST)
@@ -205,7 +210,7 @@ impl RTCServer {
         println!("signal_candidate Response: {}", resp.status());
         Ok(())
     }
-    async fn remote_handler(&self, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+    async fn remote_handler(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
         let pc = {
             let pcm = PEER_CONNECTION_MUTEX.lock().await;
             pcm.clone().unwrap()
@@ -215,9 +220,6 @@ impl RTCServer {
             addr.clone()
         };
         match (req.method(), req.uri().path()) {
-            // A HTTP handler that allows the other WebRTC-rs or Pion instance to send us ICE candidates
-            // This allows us to add ICE candidates faster, we don't have to wait for STUN or TURN
-            // candidates which may be slower
             (&Method::POST, "/candidate") => {
                 println!("remote_handler receive from /candidate");
                 let candidate =
@@ -241,27 +243,72 @@ impl RTCServer {
             // A HTTP handler that processes a SessionDescription given to us from the other WebRTC-rs or Pion process
             (&Method::POST, "/sdp") => {
                 println!("remote_handler receive from /sdp");
-                let mut sdp = RTCSessionDescription::default();
                 let sdp_str =
                     match std::str::from_utf8(&hyper::body::to_bytes(req.into_body()).await?) {
                         Ok(s) => s.to_owned(),
                         Err(err) => panic!("{}", err),
                     };
-                // sdp.serde = match serde_json::from_str::<SessionDescriptionSerde>(&sdp_str) {
-                //     Ok(s) => s,
-                //     Err(err) => panic!("{}", err),
-                // };
+                let sdp = match serde_json::from_str::<RTCSessionDescription>(&sdp_str) {
+                    Ok(s) => s,
+                    Err(err) => panic!("{}", err),
+                };
                 if let Err(err) = pc.set_remote_description(sdp).await {
                     panic!("{}", err);
                 }
+
+                let answer = match pc.create_answer(None).await {
+                    Ok(a) => a,
+                    Err(err) => panic!("{}", err),
+                };
+
+                println!(
+                    "remote_handler Post answer to {}",
+                    format!("http://{}/sdp", addr)
+                );
+
+                let payload = match serde_json::to_string(&answer) {
+                    Ok(p) => p,
+                    Err(err) => panic!("{}", err),
+                };
+
+                println!("Created Payload {}", payload);
+
+                let req = match Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("http://{}/sdp", addr))
+                    .header("content-type", "application/json; charset=utf-8")
+                    .body(Body::from(payload))
+                {
+                    Ok(req) => req,
+                    Err(err) => panic!("{}", err),
+                };
+
+                println!("Awaiting response from {}", addr);
+
+                let _resp = match Client::new().request(req).await {
+                    Ok(resp) => resp,
+                    Err(err) => {
+                        println!("{}", err);
+                        return Err(err);
+                    }
+                };
+
+                println!("Response Received");
+
+                if let Err(err) = pc.set_local_description(answer).await {
+                    panic!("{}", err);
+                }
+
                 {
                     let cs = PENDING_CANDIDATES.lock().await;
                     for c in &*cs {
-                        if let Err(err) = self.signal_candidate(&addr, c).await {
+                        if let Err(err) = RTCServer::signal_candidate(&addr, c).await {
                             panic!("{}", err);
                         }
                     }
                 }
+
+                println!("Local Description set");
                 let mut response = Response::new(Body::empty());
                 *response.status_mut() = StatusCode::OK;
                 Ok(response)
@@ -273,11 +320,5 @@ impl RTCServer {
                 Ok(not_found)
             }
         }
-    }
-
-    pub fn open() {}
-
-    fn on_message(&self, msg: &str) {
-        println!("{}", msg);
     }
 }

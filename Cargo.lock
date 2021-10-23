@@ -2100,6 +2100,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "iced_aw"
+version = "0.1.0"
+source = "git+https://github.com/iced-rs/iced_aw?branch=main#53e87f244766a056723fda9116cc3f662e1f9a68"
+dependencies = [
+ "dodrio",
+ "iced_graphics",
+ "iced_native",
+ "iced_style",
+ "iced_web",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "iced_core"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3737,6 +3751,9 @@ dependencies = [
  "env_logger",
  "hyper",
  "iced",
+ "iced_aw",
+ "iced_futures",
+ "iced_native",
  "image",
  "indexmap",
  "interceptor",
@@ -3754,6 +3771,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "webrtc",
+ "webrtc-data",
  "widestring",
  "winapi 0.3.9",
 ]
@@ -4874,6 +4892,8 @@ dependencies = [
 [[package]]
 name = "webrtc"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fb77303a4fb822765421400f364367ccc7ca72f460a9d593142829832092225"
 dependencies = [
  "async-trait",
  "base64",
