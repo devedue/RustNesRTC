@@ -27,7 +27,7 @@ struct CartHeader {
     unused: [u8; 5],
 }
 
-#[derive(Default)]
+// #[derive(Default)]
 pub struct Cartridge {
     pub v_prg_memory: Vec<u8>,
     v_chr_memory: Vec<u8>,
@@ -71,6 +71,8 @@ impl Cartridge {
         let mut v_prg_memory: Vec<u8> = Vec::new();
         let mut chr_banks = 0;
         let mut v_chr_memory: Vec<u8> = Vec::new();
+
+        println!("Scanning cartridge {}", file_type);
 
         match file_type {
             0 => {}

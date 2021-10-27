@@ -741,12 +741,14 @@ impl Cpu {
 
     /// reset cpu to a known state
     pub fn reset(&mut self) {
+        println!("Reset start");
         self.addr_abs = 0xFFFC;
 
         let loc1 = self.addr_abs + 0;
         let loc2 = self.addr_abs + 1;
         let lo = self.read(loc1, false);
         let hi = self.read(loc2, false);
+        
 
         self.pc = ((hi as u16) << 8) | (lo as u16);
 
@@ -763,6 +765,7 @@ impl Cpu {
         self.cycles = 8;
 
         self.bus.reset();
+        println!("Reset end,{}",self.pc);
     }
 
     /// interrupt only if I=0
@@ -1105,6 +1108,7 @@ impl Cpu {
     }
 
     pub fn read(&mut self, addr: u16, b_read_only: bool) -> u8 {
+        // println!("Read {}", addr);
         let data = self.bus.read(usize::from(addr), b_read_only);
         return data;
     }

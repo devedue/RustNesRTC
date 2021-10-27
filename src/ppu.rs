@@ -1,9 +1,11 @@
-use crate::cartridge::*;
+use crate::cartridge::{Cartridge, Mirror};
 use pge::Pixel;
 use pge::Sprite;
 use std::cell::RefCell;
 use std::fs::File;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 // For Logging:
 // use std::io::Write;
@@ -96,7 +98,7 @@ impl Default for ObjectAttributeMemory {
 }
 
 pub struct Ppu {
-    cart: Option<Rc<RefCell<Cartridge>>>,
+    cart: Option<Arc<Mutex<Cartridge>>>,
     _vram: [[u8; 1024]; 2],
     pub tbl_name: [[u8; 1024]; 2],
     tbl_pattern: [[u8; 4096]; 2],
@@ -397,7 +399,7 @@ impl Ppu {
     pub fn ppu_read(&self, mut addr: u16, _: bool) -> u8 {
         let mut data = 0x00;
         addr = (addr as u16) & 0x3FFF;
-        let cart = self.cart.as_ref().unwrap().borrow();
+        let cart = self.cart.as_ref().unwrap().lock().unwrap();
 
         if cart.ppu_read(addr, &mut data) {
         } else if addr <= 0x1FFF {
@@ -459,9 +461,9 @@ impl Ppu {
     }
     pub fn ppu_write(&mut self, mut addr: u16, data: u8) {
         addr = (addr as u16) & 0x3FFF;
-        let mut cart = self.cart.as_ref().unwrap().borrow_mut();
+        let mut cart = self.cart.as_ref().unwrap().lock().unwrap();
 
-        if cart.ppu_write(addr as usize, data) {
+        if (*cart).ppu_write(addr as usize, data) {
         } else if addr <= 0x1FFF {
             self.tbl_pattern[((addr & 0x1000) >> 12) as usize][(addr & 0x0FFF) as usize] = data;
         } else if addr <= 0x3EFF {
@@ -512,8 +514,8 @@ impl Ppu {
         }
     }
 
-    pub fn connect_cartridge(&mut self, cart: Rc<RefCell<Cartridge>>) {
-        self.cart = Some(cart.clone());
+    pub fn connect_cartridge(&mut self, cart: Arc<Mutex<Cartridge>>) {
+        self.cart = Some(Arc::clone(&cart));
     }
 
     // pub fn get_decal(&self) -> &Decal {
@@ -827,14 +829,14 @@ impl Ppu {
                                 if self.scan_line.wrapping_sub(current_sprite.map.y as i16) < 8 {
                                     sprite_addr_lo = (((current_sprite.map.id & 0x01) as u16)
                                         << 12)
-                                        | ((((current_sprite.map.id & 0xFE)+1) as u16) << 4)
+                                        | ((((current_sprite.map.id & 0xFE) + 1) as u16) << 4)
                                         | (7 - (((self.scan_line as u16)
                                             - (current_sprite.map.y as u16))
                                             & 0x07));
                                 } else {
                                     sprite_addr_lo = (((current_sprite.map.id & 0x01) as u16)
                                         << 12)
-                                        | ((((current_sprite.map.id & 0xFE)) as u16) << 4)
+                                        | (((current_sprite.map.id & 0xFE) as u16) << 4)
                                         | (7 - (((self.scan_line as u16)
                                             - (current_sprite.map.y as u16))
                                             & 0x07));
@@ -977,6 +979,7 @@ impl Ppu {
     }
 
     pub fn reset(&mut self) {
+        println!("PPU Reset Start");
         self.fine_x = 0x00;
         self.address_latch = 0x00;
         self.ppu_data_buffer = 0x00;
@@ -995,5 +998,6 @@ impl Ppu {
         self.control.reg = 0x00;
         self.vram_addr.reg = 0x0000;
         self.tram_addr.reg = 0x0000;
+        println!("PPU Reset End");
     }
 }

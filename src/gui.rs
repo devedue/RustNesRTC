@@ -1,3 +1,5 @@
+use crate::screen::Screen;
+use crate::audio::Audio;
 use crate::nes::Nes;
 use crate::rtc::client::start_client;
 use crate::rtc::server::start_server;
@@ -193,32 +195,38 @@ impl Application for MainMenu {
             MainMenu::Loaded(state) => match message {
                 Message::Connect => {
                     let ip = state.sdp.clone();
-                    if ip.is_empty() {
-                        state.modal_state.show(true);
-                    } else {
-                        tokio::spawn(async {
-                            if let Err(e) = start_client(ip).await {
-                                eprintln!("server error: {}", e);
-                            }
-                        });
-                        state.started = 1;
-                    }
+                    // if ip.is_empty() {
+                    //     state.modal_state.show(true);
+                    // } else {
+                    tokio::spawn(async {
+                        if let Err(e) = start_client(ip).await {
+                            eprintln!("server error: {}", e);
+                        }
+                    });
+                    state.started = 1;
+                    // }
                 }
                 Message::CopySDP => {
                     clipboard.write(state.sdp.to_owned());
                 }
                 Message::GenerateSDP => {
-                    let ip = state.sdp.clone();
-                    if ip.is_empty() {
-                        state.modal_state.show(true);
-                    } else {
-                        tokio::spawn(async {
-                            if let Err(e) = start_server(ip).await {
-                                eprintln!("server error: {}", e);
-                            }
-                        });
-                        state.started = 2;
-                    }
+                    std::thread::spawn(move || {
+                        let mut screen = Screen::new();
+                        let mut pge = PGE::construct("NES Emulator", 512, 480, 2, 2);
+                        pge.start(&mut screen);
+                    });
+
+                    // let ip = state.sdp.clone();
+                    // // if ip.is_empty() {
+                    // //     state.modal_state.show(true);
+                    // // } else {
+                    // tokio::spawn(async {
+                    //     if let Err(e) = start_server(ip).await {
+                    //         eprintln!("server error: {}", e);
+                    //     }
+                    // });
+                    // state.started = 2;
+                    // }
                 }
                 Message::InputChanged(value) => {
                     state.input_value = value;
@@ -254,26 +262,26 @@ impl Application for MainMenu {
                 }
                 Message::RtcEvent(event) => match event {
                     RtcEvent::Message(message) => {
-                        if !message.is_empty() {
-                            let msg_str = String::from_utf8(message).unwrap();
-                            state.messages.push(MessageElement {
-                                sent: false,
-                                message: msg_str.to_owned(),
-                            });
-                        }
+                        // if !message.is_empty() {
+                        //     let msg_str = String::from_utf8(message).unwrap();
+                        //     state.messages.push(MessageElement {
+                        //         sent: false,
+                        //         message: msg_str.to_owned(),
+                        //     });
+                        // }
                     }
                     RtcEvent::Connected => {
                         if state.started == 1 {
-                            std::thread::spawn(move || {
-                                let mut nes = Nes::new();
-                                let mut pge = PGE::construct("NES Emulator", 512, 480, 2, 2);
-                                pge.start(&mut nes);
-                            });
+                            // std::thread::spawn(move || {
+                            //     let mut nes = Nes::new();
+                            //     let mut pge = PGE::construct("NES Emulator", 512, 480, 2, 2);
+                            //     pge.start(&mut nes);
+                            // });
                         } else {
                             std::thread::spawn(move || {
-                                let mut nes = Nes::new();
+                                let mut screen = Screen::new();
                                 let mut pge = PGE::construct("NES Emulator", 512, 480, 2, 2);
-                                pge.start(&mut nes);
+                                pge.start(&mut screen);
                             });
                         }
                     }
