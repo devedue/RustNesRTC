@@ -205,7 +205,7 @@ impl Application for MainMenu {
                 ]),
                 Connection::Server => Subscription::batch([
                     Subscription::from_recipe(RtcEventRecipe {}),
-                    time::every(Duration::from_millis(1)).map(Message::Tick),
+                    time::every(Duration::from_millis(5)).map(Message::Tick),
                 ]),
                 _ => Subscription::none(),
             },
@@ -278,8 +278,9 @@ impl Application for MainMenu {
                 Message::RtcEvent(event) => match event {
                     RtcEvent::Message(message) => {
                         let mut nes = NES_PTR.lock().unwrap();
-                        // println!("Lock");
-                        (*nes).active_image = message;
+                        // println!("mess {}",message.len());
+                        (*nes).pal_positions = message;
+                        (*nes).construct_pal();
                         state.message_count += 1;
                         // if state.message_count > 60 {
                         //     state.message_count = 0;
@@ -320,10 +321,10 @@ impl Application for MainMenu {
                         println!("Frames: {}", state.message_count);
                         state.message_count = 0;
                     } else {
-                        let nes = NES_PTR.lock().unwrap();
-                        let data = nes.active_image.to_owned();
+                        let mut nes = NES_PTR.lock().unwrap();
+                        let data = nes.get_pal_positions().to_owned();
                         drop(nes);
-                        if data.len() >= 65535 {
+                        if data.len() >= 61440 {
                             tokio::spawn(async move {
                                 let data_channel = DATA_CHANNEL_TX.lock().await;
                                 // println!("should send");
@@ -338,7 +339,7 @@ impl Application for MainMenu {
                                 };
                                 match data_channel
                                     .write(&Bytes::copy_from_slice(
-                                        data[0..65535].try_into().unwrap(),
+                                        data[0..61440].try_into().unwrap(),
                                     ))
                                     .await
                                 {

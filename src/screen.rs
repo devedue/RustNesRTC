@@ -51,13 +51,13 @@ impl State for Screen {
 
         engine.clear(&DARK_BLUE);
         if self.client {
-            let new_sprite: pge::Sprite = match bincode::deserialize(&nes.active_image) {
-                Ok(res) => res,
-                Err(_) => {
-                    return true;
-                }
-            };
-            engine.draw_sprite(0, 0, &new_sprite, 2);
+            // let new_sprite: pge::Sprite = match bincode::deserialize(&nes.active_image) {
+            //     Ok(res) => res,
+            //     Err(_) => {
+            //         return true;
+            //     }
+            // };
+            engine.draw_sprite(0, 0, &nes.cpu.bus.get_ppu().spr_screen, 2);
             return true;
         }
         // print!("Update Start > ");

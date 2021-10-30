@@ -101,7 +101,8 @@ pub struct Ppu {
     pub tbl_name: [[u8; 1024]; 2],
     tbl_pattern: [[u8; 4096]; 2],
     tbl_palette: [u8; 32],
-    pal_screen: [Pixel; 0x40],
+    pub pal_screen: [Pixel; 0x40],
+    pub pal_positions: [u8; 65535],
     pub spr_screen: Sprite,
     _spr_name_table: [Sprite; 2],
     _spr_pattern_table: [Sprite; 2],
@@ -156,6 +157,7 @@ impl Ppu {
             tbl_name: [[0; 1024]; 2],
             tbl_pattern: [[0; 4096]; 2],
             tbl_palette: [0; 32],
+            pal_positions: [0; 65535],
             pal_screen: [
                 Pixel::rgb(84, 84, 84),
                 Pixel::rgb(0, 30, 116),
@@ -520,39 +522,10 @@ impl Ppu {
     //     &Decal::create(Some(*self.spr_screen.deref()))
     // }
 
-    pub fn get_palette_color(&self, palette: u8, pixel: u8) -> Pixel {
+    pub fn get_pal_position(&self, palette: u8, pixel: u8) -> usize {
         let i = self.ppu_read(0x3F00 + ((palette as u16) << 2) + (pixel as u16), false);
-        return self.pal_screen[(i & 0x3F) as usize];
+        return (i & 0x3F) as usize;
     }
-
-    pub fn _get_pattern_table(&mut self, i: u8, palette: u8) -> Sprite {
-        for ty in 0..16 {
-            for tx in 0..16 {
-                let offset = ty * 256 + tx * 16;
-                for row in 0..8 {
-                    let mut tile_lsb = self.ppu_read((i as u16) * 0x1000 + offset + row + 0, false);
-                    let mut tile_msb = self.ppu_read((i as u16) * 0x1000 + offset + row + 8, false);
-                    for col in 0..8 {
-                        let pixel = ((tile_lsb & 0x01) << 1) | (tile_msb & 0x01);
-                        tile_lsb = tile_lsb >> 1;
-                        tile_msb = tile_msb >> 1;
-
-                        self._spr_pattern_table[i as usize].set_pixel(
-                            (tx * 8 + (7 - col)) as i32,
-                            (ty * 8 + row) as i32,
-                            &self.get_palette_color(palette, pixel),
-                        );
-                    }
-                }
-            }
-        }
-
-        return self._spr_pattern_table[i as usize].clone();
-    }
-
-    // pub fn get_name_table(&self, i: usize) -> Sprite {
-    //     return self.spr_name_table[i].clone();
-    // }
 
     unsafe fn increment_scroll_x(&mut self) {
         if self.mask.bits.render_background() || self.mask.bits.render_sprites() {
@@ -958,8 +931,14 @@ impl Ppu {
 
             let sprx = self.cycle - 1;
             let spry = self.scan_line;
-            let sprc = self.get_palette_color(palette, pixel);
-            self.spr_screen.set_pixel(sprx.into(), spry.into(), &sprc);
+            if sprx >= 0 && (sprx as i32) < self.spr_screen.width as i32 && spry >= 0 && (spry as i32) < self.spr_screen.height as i32 {
+                let cpa = self.get_pal_position(palette, pixel);
+                let sprc = self.pal_screen[cpa];
+                self.pal_positions
+                    [(spry as i32 * self.spr_screen.width as i32 + sprx as i32) as usize] =
+                    cpa as u8;
+                self.spr_screen.set_pixel(sprx.into(), spry.into(), &sprc);
+            }
         }
 
         self.cycle = self.cycle + 1;
