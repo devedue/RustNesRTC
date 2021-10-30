@@ -3,13 +3,6 @@
 #![feature(untagged_unions)]
 #![feature(libc)]
 
-use crate::screen::Screen;
-use crate::nes::Nes;
-use std::sync::Arc;
-use std::sync::Mutex;
-use crate::nes::NES_PTR;
-use pge::PGE;
-
 mod apu;
 mod bus;
 mod cartridge;
@@ -18,8 +11,6 @@ mod mapper;
 mod mapper_000;
 mod nes;
 mod ppu;
-mod socket;
-mod util;
 mod rtc;
 mod gui;
 mod rtc_event;
@@ -31,7 +22,7 @@ extern crate lazy_static;
 
 #[tokio::main]
 async fn main() {
-    let mut screen = Screen::new();
-    let mut pge = PGE::construct("NES Emulator", 512, 480, 2, 2);
-    pge.start(&mut screen);
+    println!("Start");
+    gui::MainMenu::start_program();
+    println!("End");
 }

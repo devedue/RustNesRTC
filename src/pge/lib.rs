@@ -1,5 +1,5 @@
 
-use minifb::{Window, WindowOptions, MouseMode, MouseButton, Scale, ScaleMode, Key, KeyRepeat};
+use minifb::{Window, WindowOptions, MouseMode, MouseButton, Scale, ScaleMode, Key};
 
 
 use std::time::Instant;

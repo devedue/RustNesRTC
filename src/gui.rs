@@ -1,18 +1,19 @@
-use crate::screen::Screen;
-use crate::audio::Audio;
-use crate::nes::Nes;
+use crate::nes::NES_PTR;
 use crate::rtc::client::start_client;
 use crate::rtc::server::start_server;
 use crate::rtc::DATA_CHANNEL_TX;
 use crate::rtc_event::RtcEvent;
 use crate::rtc_event::RtcEventRecipe;
+use crate::screen::Screen;
 use hyper::body::Bytes;
+use iced::time;
 use iced::{
     button, executor, scrollable, text_input, Application, Button, Clipboard, Column, Command,
     Container, Element, HorizontalAlignment, Length, Row, Scrollable, Settings, Subscription, Text,
     TextInput,
 };
 use pge::PGE;
+use std::time::{Duration, Instant};
 
 use iced_aw::{modal, Card, Modal};
 
@@ -36,7 +37,7 @@ pub struct State {
     messages: Vec<MessageElement>,
     input_value: String,
     sdp: String,
-    started: u8,
+    started: Connection,
     ti_message: text_input::State,
     ti_sdp: text_input::State,
     bt_copy: button::State,
@@ -45,10 +46,24 @@ pub struct State {
     bt_send: button::State,
     scroll_messages: scrollable::State,
     modal_state: modal::State<DialogState>,
+    message_count: u64,
 }
 
 pub enum MainMenu {
     Loaded(State),
+}
+
+#[derive(std::cmp::PartialEq)]
+enum Connection {
+    Client,
+    Server,
+    Unspecified,
+}
+
+impl Default for Connection {
+    fn default() -> Self {
+        Connection::Unspecified
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +76,7 @@ pub enum Message {
     Connect,
     RtcEvent(RtcEvent),
     DialogEvent(DialogMessage),
+    Tick(Instant),
 }
 
 impl MainMenu {
@@ -183,8 +199,14 @@ impl Application for MainMenu {
     fn subscription(&self) -> Subscription<Message> {
         match self {
             MainMenu::Loaded(state) => match state.started {
-                1 => Subscription::from_recipe(RtcEventRecipe {}),
-                2 => Subscription::from_recipe(RtcEventRecipe {}),
+                Connection::Client => Subscription::batch([
+                    Subscription::from_recipe(RtcEventRecipe {}),
+                    time::every(Duration::from_millis(1000)).map(Message::Tick),
+                ]),
+                Connection::Server => Subscription::batch([
+                    Subscription::from_recipe(RtcEventRecipe {}),
+                    time::every(Duration::from_millis(1)).map(Message::Tick),
+                ]),
                 _ => Subscription::none(),
             },
         }
@@ -203,30 +225,23 @@ impl Application for MainMenu {
                             eprintln!("server error: {}", e);
                         }
                     });
-                    state.started = 1;
+                    state.started = Connection::Client;
                     // }
                 }
                 Message::CopySDP => {
                     clipboard.write(state.sdp.to_owned());
                 }
                 Message::GenerateSDP => {
-                    std::thread::spawn(move || {
-                        let mut screen = Screen::new();
-                        let mut pge = PGE::construct("NES Emulator", 512, 480, 2, 2);
-                        pge.start(&mut screen);
+                    let ip = state.sdp.clone();
+                    // if ip.is_empty() {
+                    //     state.modal_state.show(true);
+                    // } else {
+                    tokio::spawn(async {
+                        if let Err(e) = start_server(ip).await {
+                            eprintln!("server error: {}", e);
+                        }
                     });
-
-                    // let ip = state.sdp.clone();
-                    // // if ip.is_empty() {
-                    // //     state.modal_state.show(true);
-                    // // } else {
-                    // tokio::spawn(async {
-                    //     if let Err(e) = start_server(ip).await {
-                    //         eprintln!("server error: {}", e);
-                    //     }
-                    // });
-                    // state.started = 2;
-                    // }
+                    state.started = Connection::Server;
                 }
                 Message::InputChanged(value) => {
                     state.input_value = value;
@@ -240,7 +255,7 @@ impl Application for MainMenu {
                         sent: true,
                         message: message.clone(),
                     });
-                    if state.started != 0 {
+                    if state.started != Connection::Unspecified {
                         tokio::spawn(async {
                             let data_channel = DATA_CHANNEL_TX.lock().await;
                             let data_channel = match data_channel.clone() {
@@ -262,6 +277,14 @@ impl Application for MainMenu {
                 }
                 Message::RtcEvent(event) => match event {
                     RtcEvent::Message(message) => {
+                        let mut nes = NES_PTR.lock().unwrap();
+                        // println!("Lock");
+                        (*nes).active_image = message;
+                        state.message_count += 1;
+                        // if state.message_count > 60 {
+                        //     state.message_count = 0;
+                        //     println!("60");
+                        // }
                         // if !message.is_empty() {
                         //     let msg_str = String::from_utf8(message).unwrap();
                         //     state.messages.push(MessageElement {
@@ -271,16 +294,16 @@ impl Application for MainMenu {
                         // }
                     }
                     RtcEvent::Connected => {
-                        if state.started == 1 {
-                            // std::thread::spawn(move || {
-                            //     let mut nes = Nes::new();
-                            //     let mut pge = PGE::construct("NES Emulator", 512, 480, 2, 2);
-                            //     pge.start(&mut nes);
-                            // });
+                        if state.started == Connection::Client {
+                            std::thread::spawn(move || {
+                                let mut screen = Screen::new(true);
+                                let mut pge = PGE::construct("C", 512, 480, 2, 2);
+                                pge.start(&mut screen);
+                            });
                         } else {
                             std::thread::spawn(move || {
-                                let mut screen = Screen::new();
-                                let mut pge = PGE::construct("NES Emulator", 512, 480, 2, 2);
+                                let mut screen = Screen::new(false);
+                                let mut pge = PGE::construct("S", 512, 480, 2, 2);
                                 pge.start(&mut screen);
                             });
                         }
@@ -292,6 +315,45 @@ impl Application for MainMenu {
                         state.modal_state.show(false);
                     }
                 },
+                Message::Tick(_) => {
+                    if state.started == Connection::Client {
+                        println!("Frames: {}", state.message_count);
+                        state.message_count = 0;
+                    } else {
+                        let nes = NES_PTR.lock().unwrap();
+                        let data = nes.active_image.to_owned();
+                        drop(nes);
+                        if data.len() >= 65535 {
+                            tokio::spawn(async move {
+                                let data_channel = DATA_CHANNEL_TX.lock().await;
+                                // println!("should send");
+                                let data_channel = match data_channel.clone() {
+                                    Some(dc) => dc,
+                                    None => {
+                                        return Some((
+                                            Message::RtcEvent(RtcEvent::Waiting),
+                                            "".to_owned(),
+                                        ));
+                                    }
+                                };
+                                match data_channel
+                                    .write(&Bytes::copy_from_slice(
+                                        data[0..65535].try_into().unwrap(),
+                                    ))
+                                    .await
+                                {
+                                    Ok(_) => {
+                                        // println!("Sent");
+                                    }
+                                    Err(err) => {
+                                        println!("Not Sent, {}", err);
+                                    }
+                                };
+                                None
+                            });
+                        }
+                    }
+                }
             },
         }
 

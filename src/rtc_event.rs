@@ -1,8 +1,8 @@
 use crate::gui::Message;
 use crate::rtc::DATA_CHANNEL_RX;
 use iced_futures::futures;
-
-const MESSAGE_SIZE: usize = 300;
+use crate::nes::SPRITE_ARR_SIZE;
+const MESSAGE_SIZE: usize = SPRITE_ARR_SIZE;
 
 #[derive(Debug, Clone)]
 pub enum RtcEvent {

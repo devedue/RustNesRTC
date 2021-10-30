@@ -1,8 +1,6 @@
 use crate::ppu::Ppu;
 use crate::cartridge::Cartridge;
 use crate::apu::Apu;
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::Mutex;
 

@@ -1,27 +1,15 @@
-use chrono::Utc;
 use crate::cpu::Cpu;
-use crate::audio::Audio;
 use crate::cartridge::Cartridge;
-use anyhow::Result;
-use bincode;
-use minifb::Key;
-use pge::*;
-use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
-use std::convert::TryInto;
-use std::rc::Rc;
 use std::sync::Mutex;
 
 extern crate redis;
-use redis::Commands;
-
 use std::sync::Arc;
 // use tokio::sync::Mutex;
 // For Logging:
 // use std::io::Write;
 // use crate::util::hex;
 
-const SPRITE_ARR_SIZE: usize = 256 * 240 * 4 + 8 + 16;
+pub const SPRITE_ARR_SIZE: usize = 256 * 240 * 4 + 8 + 16;
 
 lazy_static! {
     pub static ref NES_PTR: Arc<Mutex<Nes>> = Arc::new(Mutex::new(Nes::new()));
@@ -36,8 +24,8 @@ pub struct Nes {
     pub cycles: u128,
     player1: bool,
     pub accumulated_time: f32,
-    residual_time: f32,
-    pub active_image: [u8; SPRITE_ARR_SIZE],
+    // pub residual_time: f32,
+    pub active_image: Vec<u8>,
 }
 
 //Static sound functions
@@ -62,10 +50,10 @@ impl Nes {
             draw_mode: false,
             cycles: 0,
             accumulated_time: 0.0,
-            residual_time: 0.0,
+            // residual_time: 0.0,
             // redis_con: redis.get_connection().unwrap(),
             player1: true,
-            active_image: [0; SPRITE_ARR_SIZE],
+            active_image: vec!(),
         };
     }
 

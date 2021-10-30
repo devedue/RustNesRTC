@@ -1,8 +1,6 @@
 use crate::nes::sound_out;
 use alto::sys::ALint;
 use alto::sys::{ALCcontext, ALCdevice, ALshort, ALuint, AlApi};
-use anyhow::Result;
-use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 // use std::thread::JoinHandle;

@@ -1,9 +1,7 @@
 use crate::cartridge::{Cartridge, Mirror};
 use pge::Pixel;
 use pge::Sprite;
-use std::cell::RefCell;
 use std::fs::File;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::Mutex;
 

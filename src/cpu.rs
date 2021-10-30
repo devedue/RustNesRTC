@@ -1,11 +1,5 @@
-// use crate::apu::Apu;
 use crate::bus::*;
-use crate::util::*;
 use indexmap::IndexMap;
-
-// For Logging: 
-// use std::io::Write;
-// use crate::util::hex;
 
 pub enum FLAGS6502 {
     C = (1 << 0), // Carry Bit
@@ -735,7 +729,7 @@ impl Cpu {
         self.cycles = self.cycles - 1;
     }
 
-    pub fn is_complete(&mut self) -> bool {
+    pub fn _is_complete(&mut self) -> bool {
         return self.cycles == 0;
     }
 
@@ -1129,112 +1123,5 @@ impl Cpu {
         } else {
             self.status = self.status & (!(f as u8));
         }
-    }
-
-    pub fn _disassemble(&mut self, nStart: u16, nStop: u16) {
-        let nStop = nStop as u32;
-        let mut addr = nStart as u32;
-        let mut value: u8;
-        let mut lo;
-        let mut hi;
-        let mut mapLines: IndexMap<u16, String> = IndexMap::new();
-        let mut line_addr;
-
-        while addr < nStop {
-            line_addr = addr;
-
-            let mut sInst = format!("{}{}{}", "$", hex(addr as u16), ":           ");
-
-            let opcode = self.read(addr as u16, true) as usize;
-            let inst = &self.lookup[opcode];
-            addr = addr + 1;
-            sInst = format!("{}{} ", sInst, String::from(&inst.name));
-
-            if self.lookup[opcode].addrmode as usize == Self::IMP as usize {
-                sInst = format!("{}{}", sInst, "{IMP}");
-            } else if self.lookup[opcode].addrmode as usize == Self::IMM as usize {
-                value = self.read(addr as u16, true);
-                addr = addr + 1;
-                sInst = format!("{}{}{}{}", sInst, "#$", hex(value.into()), " {IMM}");
-            } else if self.lookup[opcode].addrmode as usize == Self::ZP0 as usize {
-                lo = self.read(addr as u16, true);
-                addr = addr + 1;
-                sInst = format!("{}{}{}{}", sInst, "$", hex(lo.into()), " {ZP0}");
-            } else if self.lookup[opcode].addrmode as usize == Self::ZPX as usize {
-                lo = self.read(addr as u16, true);
-                addr = addr + 1;
-                sInst = format!("{}{}{}{}", sInst, "$", hex(lo.into()), ", X {ZPX}");
-            } else if self.lookup[opcode].addrmode as usize == Self::ZPY as usize {
-                lo = self.read(addr as u16, true);
-                addr = addr + 1;
-                sInst = format!("{}{}{}{}", sInst, "$", hex(lo.into()), ", Y {ZPY}");
-            } else if self.lookup[opcode].addrmode as usize == Self::IZX as usize {
-                lo = self.read(addr as u16, true);
-                addr = addr + 1;
-                sInst = format!("{}{}{}{}", sInst, "$", hex(lo.into()), "{IZX}");
-            } else if self.lookup[opcode].addrmode as usize == Self::IZY as usize {
-                lo = self.read(addr as u16, true);
-                addr = addr + 1;
-                sInst = format!("{}{}{}{}", sInst, "$", hex(lo.into()), "{IZY}");
-            } else if self.lookup[opcode].addrmode as usize == Self::ABS as usize {
-                lo = self.read(addr as u16, true);
-                addr = addr + 1;
-                hi = self.read(addr as u16, true);
-                addr = addr + 1;
-                let comb = ((hi as u16) << 8) | (lo as u16);
-                sInst = format!("{}{}{}{}", sInst, "$", hex(comb), " {ABS}");
-            } else if self.lookup[opcode].addrmode as usize == Self::ABX as usize {
-                lo = self.read(addr as u16, true);
-                addr = addr + 1;
-                hi = self.read(addr as u16, true);
-                addr = addr + 1;
-                sInst = format!(
-                    "{}{}{}{}",
-                    sInst,
-                    "$",
-                    hex((((hi as u16) << 8) | lo as u16).into()),
-                    ", X {ABX}"
-                );
-            } else if self.lookup[opcode].addrmode as usize == Self::ABY as usize {
-                lo = self.read(addr as u16, true);
-                addr = addr + 1;
-                hi = self.read(addr as u16, true);
-                addr = addr + 1;
-                sInst = format!(
-                    "{}{}{}{}",
-                    sInst,
-                    "$",
-                    hex((((hi as u16) << 8) | lo as u16).into()),
-                    ", Y {ABY}"
-                );
-            } else if self.lookup[opcode].addrmode as usize == Self::IND as usize {
-                lo = self.read(addr as u16, true);
-                addr = addr + 1;
-                hi = self.read(addr as u16, true);
-                addr = addr + 1;
-                sInst = format!(
-                    "{}{}{}{}",
-                    sInst,
-                    "$",
-                    hex((((hi as u16) << 8) | (lo as u16)).into()),
-                    "{IND}"
-                );
-            } else if self.lookup[opcode].addrmode as usize == Self::REL as usize {
-                value = self.read(addr as u16, true);
-                addr = addr + 1;
-                let k = addr.wrapping_add(value as u32);
-
-                sInst = format!(
-                    "{}{}{}{}",
-                    sInst,
-                    "$",
-                    hex(k.wrapping_sub(0x0100) as u16),
-                    " {REL}"
-                );
-            }
-            mapLines.insert(line_addr as u16, String::from(sInst));
-        }
-
-        self.map_asm = mapLines;
     }
 }

@@ -20,7 +20,7 @@ byteorder = "1.4.2"
 chrono = "0.4.19"
 clap = "2"
 hyper = {version = "0.14", features = ["full"]}
-iced = "0.3"
+iced = {version = "0.3", features = ["tokio"]}
 iced_aw = {git = "https://github.com/iced-rs/iced_aw", branch = "main", default-features = false, features = ["modal", "card"]}
 iced_futures = "0.3.0"
 iced_native = "0.4.0"

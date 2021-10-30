@@ -1,7 +1,7 @@
 use crate::audio::Audio;
 use crate::cartridge::Cartridge;
 use crate::cpu::Cpu;
-use crate::NES_PTR;
+use crate::nes::NES_PTR;
 use minifb::Key;
 use pge::*;
 use std::sync::Mutex;
@@ -10,19 +10,24 @@ extern crate redis;
 
 use std::sync::Arc;
 
-pub struct Screen {}
+pub struct Screen {
+    client: bool,
+}
 
 impl Screen {
-    pub fn new() -> Self {
-        Screen {}
+    pub fn new(client: bool) -> Self {
+        Screen { client }
     }
 }
 
 impl State for Screen {
     fn on_user_create(&mut self) -> bool {
+        if self.client {
+            return true;
+        }
         let mut nes = NES_PTR.lock().unwrap();
         nes.cpu = Cpu::new();
-        let cart = Arc::new(Mutex::new(Cartridge::new("dk.nes")));
+        let cart = Arc::new(Mutex::new(Cartridge::new("nestest.nes")));
         nes.cart = Some(cart.clone());
         nes.cpu.bus.insert_cartridge(cart.clone());
         nes.cpu.reset();
@@ -45,6 +50,16 @@ impl State for Screen {
         let mut nes = NES_PTR.lock().unwrap();
 
         engine.clear(&DARK_BLUE);
+        if self.client {
+            let new_sprite: pge::Sprite = match bincode::deserialize(&nes.active_image) {
+                Ok(res) => res,
+                Err(_) => {
+                    return true;
+                }
+            };
+            engine.draw_sprite(0, 0, &new_sprite, 2);
+            return true;
+        }
         // print!("Update Start > ");
         nes.accumulated_time = nes.accumulated_time + elapsed;
 
@@ -97,20 +112,11 @@ impl State for Screen {
         }
 
         engine.draw_sprite(0, 0, &nes.cpu.bus.get_ppu().spr_screen, 2);
+        let vecsprite = bincode::serialize(&nes.cpu.bus.get_ppu().spr_screen).unwrap();
+        nes.active_image = vecsprite;
 
-        // let vecsprite = bincode::serialize(&nes.cpu.bus.get_ppu().spr_screen).unwrap();
-        // let arrsprite: [u8; SPRITE_ARR_SIZE] = vecsprite.as_slice().try_into().unwrap();
-        // nes.active_image = arrsprite;
-        // nes.redis_con.set::<String, &[u8], String>("active_sprite".to_string(), &arrsprite).unwrap();
+        // let new_sprite: pge::Sprite = bincode::deserialize(&nes.active_image).unwrap();
 
-        // let got_sprite: Vec<u8> = nes.redis_con.get("active_sprite").unwrap();
-        // let got_array: [u8; 256 * 240 * 4 + 8 + 16] = got_sprite.as_slice().try_into().unwrap();
-
-        // let new_sprite: pge::Sprite = bincode::deserialize(&arrsprite).unwrap();
-        // engine.draw_sprite(0, 0, &new_sprite, 2);
-
-        // nes.draw_debug_stuff(engine);
-        // println!("< Update End");
         return true;
     }
 }
