@@ -32,7 +32,7 @@ lazy_static! {
     )));
 }
 
-pub async fn start_server(address: String) -> Result<()> {
+pub async fn start_server(_address: String) -> Result<()> {
 
     // {
     //     let mut cl = SERVER.lock().await;

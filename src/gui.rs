@@ -14,8 +14,6 @@ use iced::{
     TextInput,
 };
 use pge::PGE;
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use iced_aw::{modal, Card, Modal};
@@ -223,7 +221,7 @@ impl Application for MainMenu {
                 ]),
                 Connection::Server => Subscription::batch([
                     Subscription::from_recipe(RtcEventRecipe {}),
-                    time::every(Duration::from_millis(5)).map(Message::Tick),
+                    time::every(Duration::from_millis(10)).map(Message::Tick),
                 ]),
                 _ => Subscription::none(),
             },
@@ -270,9 +268,6 @@ impl Application for MainMenu {
                 Message::SDPChanged(value) => {
                     state.sdp = value;
                 }
-                Message::Casette(value) => {
-                    state.casette = value;
-                }
                 Message::SendMessage => {
                     let message = state.input_value.clone();
                     state.messages.push(MessageElement {
@@ -308,7 +303,7 @@ impl Application for MainMenu {
                             (*nes).construct_pal();
                             state.message_count += 1;
                         } else {
-                            println!("received {}", message[0]);
+                            // println!("received {}", message[0]);
                             let mut nes = NES_PTR.lock().unwrap();
                             (*nes).set_controller_state(message[0]);
                         }
@@ -417,7 +412,7 @@ impl Application for MainMenu {
                                     },
                                     _ => {}
                                 }
-                                println!("State: {}", state.key_state);
+                                // println!("State: {}", state.key_state);
                                 let data = [state.key_state];
                                 tokio::spawn(async move {
                                     let data_channel = DATA_CHANNEL_TX.lock().await;
@@ -433,7 +428,7 @@ impl Application for MainMenu {
                                     };
                                     match data_channel.write(&Bytes::copy_from_slice(&data)).await {
                                         Ok(_) => {
-                                            println!("Sent {}", data[0]);
+                                            // println!("Sent {}", data[0]);
                                         }
                                         Err(err) => {
                                             println!("Not Sent, {}", err);

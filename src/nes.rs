@@ -25,7 +25,6 @@ pub struct Nes {
     player1: bool,
     pub accumulated_time: f32,
     // pub residual_time: f32,
-    pub active_image: Vec<u8>,
     pub pal_positions: Vec<u8>
 }
 
@@ -42,7 +41,6 @@ pub fn sound_out(channel: u32, _global_time: f32, _time_step: f32) -> f32 {
 
 impl Nes {
     pub fn new(file: &str) -> Self {
-        // let redis = redis::Client::open("redis://127.0.0.1").unwrap();
         return Nes {
             cpu: Cpu::new(),
             cart: Some(Arc::new(Mutex::new(Cartridge::new(file)))),
@@ -52,15 +50,13 @@ impl Nes {
             cycles: 0,
             accumulated_time: 0.0,
             // residual_time: 0.0,
-            // redis_con: redis.get_connection().unwrap(),
             player1: true,
-            active_image: vec!(),
             pal_positions: vec!()
         };
     }
 
     fn clock(&mut self) -> bool {
-        // print!("Clock Start > ");
+        
         self.cpu.bus.get_ppu().clock();
         self.cpu.bus.apu.clock();
         if self.cycles % 3 == 0 {

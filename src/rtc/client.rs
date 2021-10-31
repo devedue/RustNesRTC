@@ -36,7 +36,7 @@ struct RTCClient {
     channel: String,
 }
 
-pub async fn start_client(address: String) -> Result<()> {
+pub async fn start_client(_address: String) -> Result<()> {
     
     // {
     //     let mut cl = CLIENT.lock().await;

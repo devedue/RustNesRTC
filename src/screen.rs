@@ -1,14 +1,10 @@
 use crate::audio::Audio;
-use crate::cartridge::Cartridge;
 use crate::cpu::Cpu;
 use crate::nes::NES_PTR;
 use minifb::Key;
 use pge::*;
-use std::sync::Mutex;
 
 extern crate redis;
-
-use std::sync::Arc;
 
 pub struct Screen {
     client: bool,
@@ -51,12 +47,6 @@ impl State for Screen {
 
         engine.clear(&DARK_BLUE);
         if self.client {
-            // let new_sprite: pge::Sprite = match bincode::deserialize(&nes.active_image) {
-            //     Ok(res) => res,
-            //     Err(_) => {
-            //         return true;
-            //     }
-            // };
             engine.draw_sprite(0, 0, &nes.cpu.bus.get_ppu().spr_screen, 2);
             return true;
         }
@@ -112,10 +102,6 @@ impl State for Screen {
         }
 
         engine.draw_sprite(0, 0, &nes.cpu.bus.get_ppu().spr_screen, 2);
-        let vecsprite = bincode::serialize(&nes.cpu.bus.get_ppu().spr_screen).unwrap();
-        nes.active_image = vecsprite;
-
-        // let new_sprite: pge::Sprite = bincode::deserialize(&nes.active_image).unwrap();
 
         return true;
     }
