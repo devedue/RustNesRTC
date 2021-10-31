@@ -1,3 +1,4 @@
+use crate::nes::Nes;
 use crate::nes::NES_PTR;
 use crate::rtc::client::start_client;
 use crate::rtc::server::start_server;
@@ -13,6 +14,8 @@ use iced::{
     TextInput,
 };
 use pge::PGE;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use iced_aw::{modal, Card, Modal};
@@ -37,8 +40,10 @@ pub struct State {
     messages: Vec<MessageElement>,
     input_value: String,
     sdp: String,
+    casette: String,
     started: Connection,
     ti_message: text_input::State,
+    ti_casette: text_input::State,
     ti_sdp: text_input::State,
     bt_copy: button::State,
     bt_generate: button::State,
@@ -47,6 +52,7 @@ pub struct State {
     scroll_messages: scrollable::State,
     modal_state: modal::State<DialogState>,
     message_count: u64,
+    key_state: u8,
 }
 
 pub enum MainMenu {
@@ -72,11 +78,13 @@ pub enum Message {
     CopySDP,
     InputChanged(String),
     SDPChanged(String),
+    Casette(String),
     SendMessage,
     Connect,
     RtcEvent(RtcEvent),
     DialogEvent(DialogMessage),
     Tick(Instant),
+    NativeEvent(iced_native::Event),
 }
 
 impl MainMenu {
@@ -108,6 +116,15 @@ impl Application for MainMenu {
                             "IP:PORT",
                             &mut state.sdp,
                             Message::SDPChanged,
+                        )
+                        .padding(5),
+                    )
+                    .push(
+                        TextInput::new(
+                            &mut state.ti_casette,
+                            "casette",
+                            &mut state.casette,
+                            Message::Casette,
                         )
                         .padding(5),
                     )
@@ -202,6 +219,7 @@ impl Application for MainMenu {
                 Connection::Client => Subscription::batch([
                     Subscription::from_recipe(RtcEventRecipe {}),
                     time::every(Duration::from_millis(1000)).map(Message::Tick),
+                    iced_native::subscription::events().map(Message::NativeEvent),
                 ]),
                 Connection::Server => Subscription::batch([
                     Subscription::from_recipe(RtcEventRecipe {}),
@@ -215,6 +233,9 @@ impl Application for MainMenu {
     fn update(&mut self, message: Self::Message, clipboard: &mut Clipboard) -> Command<Message> {
         match self {
             MainMenu::Loaded(state) => match message {
+                Message::Casette(message) => {
+                    state.casette = message;
+                },
                 Message::Connect => {
                     let ip = state.sdp.clone();
                     // if ip.is_empty() {
@@ -249,6 +270,9 @@ impl Application for MainMenu {
                 Message::SDPChanged(value) => {
                     state.sdp = value;
                 }
+                Message::Casette(value) => {
+                    state.casette = value;
+                }
                 Message::SendMessage => {
                     let message = state.input_value.clone();
                     state.messages.push(MessageElement {
@@ -277,11 +301,17 @@ impl Application for MainMenu {
                 }
                 Message::RtcEvent(event) => match event {
                     RtcEvent::Message(message) => {
-                        let mut nes = NES_PTR.lock().unwrap();
-                        // println!("mess {}",message.len());
-                        (*nes).pal_positions = message;
-                        (*nes).construct_pal();
-                        state.message_count += 1;
+                        if state.started == Connection::Client {
+                            let mut nes = NES_PTR.lock().unwrap();
+                            // println!("mess {}",message.len());
+                            (*nes).pal_positions = message;
+                            (*nes).construct_pal();
+                            state.message_count += 1;
+                        } else {
+                            println!("received {}", message[0]);
+                            let mut nes = NES_PTR.lock().unwrap();
+                            (*nes).set_controller_state(message[0]);
+                        }
                         // if state.message_count > 60 {
                         //     state.message_count = 0;
                         //     println!("60");
@@ -302,7 +332,11 @@ impl Application for MainMenu {
                                 pge.start(&mut screen);
                             });
                         } else {
+                            let casette_name = state.casette.to_owned();
                             std::thread::spawn(move || {
+                                let mut nes = NES_PTR.lock().unwrap();
+                                (*nes) = Nes::new(&casette_name);
+                                drop(nes);
                                 let mut screen = Screen::new(false);
                                 let mut pge = PGE::construct("S", 512, 480, 2, 2);
                                 pge.start(&mut screen);
@@ -316,6 +350,102 @@ impl Application for MainMenu {
                         state.modal_state.show(false);
                     }
                 },
+                Message::NativeEvent(event) => {
+                    if state.started == Connection::Client {
+                        match event {
+                            iced_native::Event::Keyboard(event) => {
+                                match event {
+                                    iced_native::keyboard::Event::KeyPressed {
+                                        key_code,
+                                        modifiers: _,
+                                    } => match key_code {
+                                        iced_native::keyboard::KeyCode::Up => {
+                                            state.key_state |= 0x08;
+                                        }
+                                        iced_native::keyboard::KeyCode::Down => {
+                                            state.key_state |= 0x04;
+                                        }
+                                        iced_native::keyboard::KeyCode::Left => {
+                                            state.key_state |= 0x02;
+                                        }
+                                        iced_native::keyboard::KeyCode::Right => {
+                                            state.key_state |= 0x01;
+                                        }
+                                        iced_native::keyboard::KeyCode::A => {
+                                            state.key_state |= 0x20;
+                                        }
+                                        iced_native::keyboard::KeyCode::S => {
+                                            state.key_state |= 0x10;
+                                        }
+                                        iced_native::keyboard::KeyCode::Z => {
+                                            state.key_state |= 0x40;
+                                        }
+                                        iced_native::keyboard::KeyCode::X => {
+                                            state.key_state |= 0x80;
+                                        }
+                                        _ => {}
+                                    },
+                                    iced_native::keyboard::Event::KeyReleased {
+                                        key_code,
+                                        modifiers: _,
+                                    } => match key_code {
+                                        iced_native::keyboard::KeyCode::Up => {
+                                            state.key_state &= !0x08;
+                                        }
+                                        iced_native::keyboard::KeyCode::Down => {
+                                            state.key_state &= !0x04;
+                                        }
+                                        iced_native::keyboard::KeyCode::Left => {
+                                            state.key_state &= !0x02;
+                                        }
+                                        iced_native::keyboard::KeyCode::Right => {
+                                            state.key_state &= !0x01;
+                                        }
+                                        iced_native::keyboard::KeyCode::A => {
+                                            state.key_state &= !0x20;
+                                        }
+                                        iced_native::keyboard::KeyCode::S => {
+                                            state.key_state &= !0x10;
+                                        }
+                                        iced_native::keyboard::KeyCode::Z => {
+                                            state.key_state &= !0x40;
+                                        }
+                                        iced_native::keyboard::KeyCode::X => {
+                                            state.key_state &= !0x80;
+                                        }
+                                        _ => {}
+                                    },
+                                    _ => {}
+                                }
+                                println!("State: {}", state.key_state);
+                                let data = [state.key_state];
+                                tokio::spawn(async move {
+                                    let data_channel = DATA_CHANNEL_TX.lock().await;
+                                    // println!("should send");
+                                    let data_channel = match data_channel.clone() {
+                                        Some(dc) => dc,
+                                        None => {
+                                            return Some((
+                                                Message::RtcEvent(RtcEvent::Waiting),
+                                                "".to_owned(),
+                                            ));
+                                        }
+                                    };
+                                    match data_channel.write(&Bytes::copy_from_slice(&data)).await {
+                                        Ok(_) => {
+                                            println!("Sent {}", data[0]);
+                                        }
+                                        Err(err) => {
+                                            println!("Not Sent, {}", err);
+                                        }
+                                    };
+                                    None
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 Message::Tick(_) => {
                     if state.started == Connection::Client {
                         println!("Frames: {}", state.message_count);

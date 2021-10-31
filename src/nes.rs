@@ -12,7 +12,7 @@ use std::sync::Arc;
 pub const SPRITE_ARR_SIZE: usize = 256 * 240;
 
 lazy_static! {
-    pub static ref NES_PTR: Arc<Mutex<Nes>> = Arc::new(Mutex::new(Nes::new()));
+    pub static ref NES_PTR: Arc<Mutex<Nes>> = Arc::new(Mutex::new(Nes::new("nestest.nes")));
 }
 
 pub struct Nes {
@@ -41,11 +41,11 @@ pub fn sound_out(channel: u32, _global_time: f32, _time_step: f32) -> f32 {
 }
 
 impl Nes {
-    pub fn new() -> Self {
+    pub fn new(file: &str) -> Self {
         // let redis = redis::Client::open("redis://127.0.0.1").unwrap();
         return Nes {
             cpu: Cpu::new(),
-            cart: None,
+            cart: Some(Arc::new(Mutex::new(Cartridge::new(file)))),
             emulation_run: true,
             selected_palette: 0,
             draw_mode: false,
@@ -117,6 +117,10 @@ impl Nes {
                 self.cpu.bus.controller[1] |= key;
             }
         }
+    }
+
+    pub fn set_controller_state(&mut self, state: u8) {
+        self.cpu.bus.controller[1] = state;
     }
 
     pub fn get_pal_positions(&mut self) -> Vec<u8>{

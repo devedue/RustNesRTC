@@ -27,8 +27,8 @@ impl State for Screen {
         }
         let mut nes = NES_PTR.lock().unwrap();
         nes.cpu = Cpu::new();
-        let cart = Arc::new(Mutex::new(Cartridge::new("nestest.nes")));
-        nes.cart = Some(cart.clone());
+        let cart = nes.cart.as_ref().unwrap().clone();
+        // nes.cart = Some(cart.clone());
         nes.cpu.bus.insert_cartridge(cart.clone());
         nes.cpu.reset();
 
