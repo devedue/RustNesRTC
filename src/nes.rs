@@ -1,5 +1,5 @@
-use crate::cpu::Cpu;
 use crate::cartridge::Cartridge;
+use crate::cpu::Cpu;
 use std::sync::Mutex;
 
 extern crate redis;
@@ -22,10 +22,9 @@ pub struct Nes {
     pub emulation_run: bool,
     pub draw_mode: bool,
     pub cycles: u128,
-    player1: bool,
     pub accumulated_time: f32,
     // pub residual_time: f32,
-    pub pal_positions: Vec<u8>
+    pub pal_positions: Vec<u8>,
 }
 
 //Static sound functions
@@ -50,13 +49,11 @@ impl Nes {
             cycles: 0,
             accumulated_time: 0.0,
             // residual_time: 0.0,
-            player1: true,
-            pal_positions: vec!()
+            pal_positions: vec![],
         };
     }
 
     fn clock(&mut self) -> bool {
-        
         self.cpu.bus.get_ppu().clock();
         self.cpu.bus.apu.clock();
         if self.cycles % 3 == 0 {
@@ -105,31 +102,18 @@ impl Nes {
         return sample_ready;
     }
 
-    pub fn set_controller(&mut self, set: bool, key: u8) {
+    pub fn _set_controller(&mut self, set: bool, key: u8) {
         if set {
-            if self.player1 {
-                self.cpu.bus.controller[0] |= key;
-            } else {
-                self.cpu.bus.controller[1] |= key;
-            }
+            self.cpu.bus.controller[0] |= key;
         }
     }
 
-    pub fn set_controller_state(&mut self, state: u8) {
-        self.cpu.bus.controller[1] = state;
+    pub fn set_controller_state(&mut self, state: u8, player: usize) {
+        self.cpu.bus.controller[player] = state;
     }
 
-    pub fn get_pal_positions(&mut self) -> Vec<u8>{
+    pub fn get_pal_positions(&mut self) -> Vec<u8> {
+        self.pal_positions = self.cpu.bus.get_ppu().pal_positions.to_vec();
         return self.cpu.bus.get_ppu().pal_positions.to_vec();
-    }
-
-    pub fn construct_pal(&mut self) {
-        for (pos,e) in self.pal_positions.iter().enumerate() {
-            if pos > 61440 {
-                break;
-            }
-            self.cpu.bus.get_ppu().spr_screen.data[pos] = self.cpu.bus.get_ppu().pal_screen[*e as usize];
-        }
-        // self.spr_screen.set_pixel(sprx.into(), spry.into(), &sprc);
     }
 }

@@ -1,6 +1,4 @@
 use crate::cartridge::{Cartridge, Mirror};
-use pge::Pixel;
-use pge::Sprite;
 use std::fs::File;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -101,11 +99,7 @@ pub struct Ppu {
     pub tbl_name: [[u8; 1024]; 2],
     tbl_pattern: [[u8; 4096]; 2],
     tbl_palette: [u8; 32],
-    pub pal_screen: [Pixel; 0x40],
     pub pal_positions: [u8; 65535],
-    pub spr_screen: Sprite,
-    _spr_name_table: [Sprite; 2],
-    _spr_pattern_table: [Sprite; 2],
     scan_line: i16,
     cycle: i16,
     pub counter: u128,
@@ -158,75 +152,6 @@ impl Ppu {
             tbl_pattern: [[0; 4096]; 2],
             tbl_palette: [0; 32],
             pal_positions: [0; 65535],
-            pal_screen: [
-                Pixel::rgb(84, 84, 84),
-                Pixel::rgb(0, 30, 116),
-                Pixel::rgb(8, 16, 144),
-                Pixel::rgb(48, 0, 136),
-                Pixel::rgb(68, 0, 100),
-                Pixel::rgb(92, 0, 48),
-                Pixel::rgb(84, 4, 0),
-                Pixel::rgb(60, 24, 0),
-                Pixel::rgb(32, 42, 0),
-                Pixel::rgb(8, 58, 0),
-                Pixel::rgb(0, 64, 0),
-                Pixel::rgb(0, 60, 0),
-                Pixel::rgb(0, 50, 60),
-                Pixel::rgb(0, 0, 0),
-                Pixel::rgb(0, 0, 0),
-                Pixel::rgb(0, 0, 0),
-                Pixel::rgb(152, 150, 152),
-                Pixel::rgb(8, 76, 196),
-                Pixel::rgb(48, 50, 236),
-                Pixel::rgb(92, 30, 228),
-                Pixel::rgb(136, 20, 176),
-                Pixel::rgb(160, 20, 100),
-                Pixel::rgb(152, 34, 32),
-                Pixel::rgb(120, 60, 0),
-                Pixel::rgb(84, 90, 0),
-                Pixel::rgb(40, 114, 0),
-                Pixel::rgb(8, 124, 0),
-                Pixel::rgb(0, 118, 40),
-                Pixel::rgb(0, 102, 120),
-                Pixel::rgb(0, 0, 0),
-                Pixel::rgb(0, 0, 0),
-                Pixel::rgb(0, 0, 0),
-                Pixel::rgb(236, 238, 236),
-                Pixel::rgb(76, 154, 236),
-                Pixel::rgb(120, 124, 236),
-                Pixel::rgb(176, 98, 236),
-                Pixel::rgb(228, 84, 236),
-                Pixel::rgb(236, 88, 180),
-                Pixel::rgb(236, 106, 100),
-                Pixel::rgb(212, 136, 32),
-                Pixel::rgb(160, 170, 0),
-                Pixel::rgb(116, 196, 0),
-                Pixel::rgb(76, 208, 32),
-                Pixel::rgb(56, 204, 108),
-                Pixel::rgb(56, 180, 204),
-                Pixel::rgb(60, 60, 60),
-                Pixel::rgb(0, 0, 0),
-                Pixel::rgb(0, 0, 0),
-                Pixel::rgb(236, 238, 236),
-                Pixel::rgb(168, 204, 236),
-                Pixel::rgb(188, 188, 236),
-                Pixel::rgb(212, 178, 236),
-                Pixel::rgb(236, 174, 236),
-                Pixel::rgb(236, 174, 212),
-                Pixel::rgb(236, 180, 176),
-                Pixel::rgb(228, 196, 144),
-                Pixel::rgb(204, 210, 120),
-                Pixel::rgb(180, 222, 120),
-                Pixel::rgb(168, 226, 144),
-                Pixel::rgb(152, 226, 180),
-                Pixel::rgb(160, 214, 228),
-                Pixel::rgb(160, 162, 160),
-                Pixel::rgb(0, 0, 0),
-                Pixel::rgb(0, 0, 0),
-            ],
-            spr_screen: Sprite::new(256, 240),
-            _spr_name_table: [Sprite::new(256, 240), Sprite::new(256, 240)],
-            _spr_pattern_table: [Sprite::new(256, 240), Sprite::new(256, 240)],
             scan_line: 0,
             cycle: 0,
             frame_complete: false,
@@ -931,13 +856,11 @@ impl Ppu {
 
             let sprx = self.cycle - 1;
             let spry = self.scan_line;
-            if sprx >= 0 && (sprx as i32) < self.spr_screen.width as i32 && spry >= 0 && (spry as i32) < self.spr_screen.height as i32 {
+            if sprx >= 0 && (sprx as i32) < 256 as i32 && spry >= 0 && (spry as i32) < 240 as i32 {
                 let cpa = self.get_pal_position(palette, pixel);
-                let sprc = self.pal_screen[cpa];
                 self.pal_positions
-                    [(spry as i32 * self.spr_screen.width as i32 + sprx as i32) as usize] =
+                    [(spry as i32 * 256 as i32 + sprx as i32) as usize] =
                     cpa as u8;
-                self.spr_screen.set_pixel(sprx.into(), spry.into(), &sprc);
             }
         }
 
