@@ -1,3 +1,6 @@
+use std::thread::JoinHandle;
+use crate::audio::AUDIO_THREAD_ACTIVE;
+use std::sync::atomic::{Ordering};
 use crate::audio::Audio;
 use crate::cpu::Cpu;
 use crate::gui::Message;
@@ -13,12 +16,14 @@ extern crate redis;
 #[derive(Default)]
 pub struct ScreenState {
     cache: Cache,
+    pub scale: f32,
 }
 
 pub struct Screen {
     state: ScreenState,
     client: bool,
     pal_screen: [Color; 64],
+    audio_thread: Option<JoinHandle<()>>
 }
 
 impl Default for Screen {
@@ -31,7 +36,10 @@ impl Screen {
     pub fn new(client: bool) -> Self {
         Screen {
             client,
-            state: ScreenState::default(),
+            state: ScreenState {
+                scale: 2.0,
+                ..ScreenState::default()
+            },
             pal_screen: [
                 Color::from_rgb8(84, 84, 84),
                 Color::from_rgb8(0, 30, 116),
@@ -98,6 +106,7 @@ impl Screen {
                 Color::from_rgb8(0, 0, 0),
                 Color::from_rgb8(0, 0, 0),
             ],
+            audio_thread: None
         }
     }
 
@@ -114,18 +123,30 @@ impl Screen {
 
         // nes.cpu.disassemble(0x0000, 0xFFFF);
         nes.cpu.bus.set_sample_frequency(44100);
-        std::thread::spawn(move || {
+    }
+
+    pub fn run_nes(&mut self) {
+        self.audio_thread = Some(std::thread::spawn(move || {
             let mut audio = Audio::new();
             audio.initialise_audio(44100, 1, 8, 512);
             // audio.set_user_synth_function(sound_out);
+            println!("Started");
             audio.audio_thread();
-        });
+            println!("Stopped");
+            audio.destroy_audio();
+        }));
+    }
+
+    pub fn stop_nes(&mut self) {
+        AUDIO_THREAD_ACTIVE.store(false, Ordering::Relaxed);
+        self.audio_thread.take().map(JoinHandle::join);
     }
 
     pub fn view(&mut self) -> Element<Message> {
+        let scale = self.state.scale;
         Canvas::new(self)
-            .width(Length::Units(256))
-            .height(Length::Units(240))
+            .width(Length::Units((256.0 * scale) as u16))
+            .height(Length::Units((240.0 * scale) as u16))
             .into()
     }
     pub fn request_redraw(&mut self) {
@@ -136,16 +157,19 @@ impl Screen {
 impl canvas::Program<Message> for Screen {
     fn draw(&self, bounds: Rectangle, _cursor: Cursor) -> Vec<Geometry> {
         let nes = NES_PTR.lock().unwrap();
-        if nes.pal_positions.len()<61440 {
+        if nes.pal_positions.len() < 61440 {
             // println!("No {}", nes.pal_positions.len());
-            return vec!();
+            return vec![];
         }
         let content = self.state.cache.draw(bounds.size(), |frame: &mut Frame| {
             for i in 0..256 {
                 for j in 0..240 {
                     frame.fill_rectangle(
-                        Point::new(i as f32, j as f32),
-                        Size::new(1.0, 1.0),
+                        Point::new(
+                            i as f32 * self.state.scale as f32,
+                            j as f32 * self.state.scale as f32,
+                        ),
+                        Size::new(1.0 * self.state.scale, 1.0 * self.state.scale),
                         self.pal_screen[nes.pal_positions[(j * 256) + i] as usize],
                     );
                 }

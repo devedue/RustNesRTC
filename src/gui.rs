@@ -13,6 +13,7 @@ use iced::{
     Element, HorizontalAlignment, Length, Row, Settings, Subscription, Text, TextInput,
 };
 use std::time::{Duration, Instant};
+use tinyfiledialogs::open_file_dialog;
 
 use iced_aw::{modal, Card, Modal};
 
@@ -28,21 +29,21 @@ struct DialogState {
 
 #[derive(Default)]
 pub struct State {
-    input_value: String,
     sdp: String,
-    casette: String,
-    started: Connection,
-    ti_message: text_input::State,
-    ti_casette: text_input::State,
+    rom: String,
+    connection_status: Connection,
     ti_sdp: text_input::State,
     bt_copy: button::State,
     bt_generate: button::State,
     bt_connect: button::State,
-    bt_send: button::State,
+    bt_start: button::State,
+    bt_stop: button::State,
+    bt_browse: button::State,
     modal_state: modal::State<DialogState>,
     message_count: u64,
     key_state: u8,
     screen: Screen,
+    started: bool,
 }
 
 pub struct MainMenu {
@@ -66,10 +67,10 @@ impl Default for Connection {
 pub enum Message {
     GenerateSDP,
     CopySDP,
-    InputChanged(String),
-    SDPChanged(String),
-    Casette(String),
-    SendMessage,
+    IPChanged(String),
+    BrowseRom,
+    StartNes,
+    StopNes,
     Connect,
     RtcEvent(RtcEvent),
     DialogEvent(DialogMessage),
@@ -81,7 +82,7 @@ impl MainMenu {
     pub fn start_program() {
         MainMenu::run(Settings {
             window: iced::window::Settings {
-                size: (500, 200),
+                size: (600, 600),
                 ..iced::window::Settings::default()
             },
             ..Settings::default()
@@ -116,16 +117,7 @@ impl Application for MainMenu {
                     &mut state.ti_sdp,
                     "IP:PORT",
                     &mut state.sdp,
-                    Message::SDPChanged,
-                )
-                .padding(5),
-            )
-            .push(
-                TextInput::new(
-                    &mut state.ti_casette,
-                    "casette",
-                    &mut state.casette,
-                    Message::Casette,
+                    Message::IPChanged,
                 )
                 .padding(5),
             )
@@ -138,18 +130,13 @@ impl Application for MainMenu {
                 Button::new(&mut state.bt_connect, Text::new("Connect")).on_press(Message::Connect),
             );
 
-        let input = TextInput::new(
-            &mut state.ti_message,
-            "Send Message",
-            &mut state.input_value,
-            Message::InputChanged,
-        )
-        .padding(5)
-        .on_submit(Message::SendMessage);
-
-        let input_block = Row::new().push(input).push(
-            Button::new(&mut state.bt_send, Text::new("Send")).on_press(Message::SendMessage),
-        );
+        let input_block = Row::new()
+            .push(
+                Button::new(&mut state.bt_browse, Text::new("Browse")).on_press(Message::BrowseRom),
+            )
+            .push(Button::new(&mut state.bt_start, Text::new("Start")).on_press(Message::StartNes))
+            .push(Button::new(&mut state.bt_stop, Text::new("Stop")).on_press(Message::StopNes))
+            .push(Text::new(&state.rom));
 
         let canvas = state.screen.view();
 
@@ -164,7 +151,7 @@ impl Application for MainMenu {
         Modal::new(&mut state.modal_state, main_content, |state| {
             Card::new(
                 Text::new("Invalid Value"),
-                Text::new("Enter a valid address in ip:port format"), //Text::new("Zombie ipsum reversus ab viral inferno, nam rick grimes malum cerebro. De carne lumbering animata corpora quaeritis. Summus brains sit​​, morbo vel maleficia? De apocalypsi gorger omero undead survivor dictum mauris. Hi mindless mortuis soulless creaturas, imo evil stalking monstra adventus resi dentevil vultus comedat cerebella viventium. Qui animated corpse, cricket bat max brucks terribilem incessu zomby. The voodoo sacerdos flesh eater, suscitat mortuos comedere carnem virus. Zonbi tattered for solum oculi eorum defunctis go lum cerebro. Nescio brains an Undead zombies. Sicut malus putrid voodoo horror. Nigh tofth eliv ingdead.")
+                Text::new("Enter a valid address in ip:port format"),
             )
             .foot(
                 Row::new().spacing(10).padding(5).width(Length::Fill).push(
@@ -188,7 +175,7 @@ impl Application for MainMenu {
 
     fn subscription(&self) -> Subscription<Message> {
         let state = &self.state;
-        match state.started {
+        match state.connection_status {
             Connection::Client => Subscription::batch([
                 Subscription::from_recipe(RtcEventRecipe {}),
                 time::every(Duration::from_millis(1000)).map(Message::Tick),
@@ -199,15 +186,21 @@ impl Application for MainMenu {
                 time::every(Duration::from_millis(10)).map(Message::Tick),
                 iced_native::subscription::events().map(Message::NativeEvent),
             ]),
-            _ => time::every(Duration::from_millis(1000)).map(Message::Tick),
+            _ => Subscription::batch([
+                time::every(Duration::from_millis(10)).map(Message::Tick),
+                iced_native::subscription::events().map(Message::NativeEvent),
+            ]),
         }
     }
 
     fn update(&mut self, message: Self::Message, clipboard: &mut Clipboard) -> Command<Message> {
         let mut state = &mut self.state;
         match message {
-            Message::Casette(message) => {
-                state.casette = message;
+            Message::BrowseRom => {
+                match tinyfiledialogs::open_file_dialog("Open", "password.txt", None) {
+                    Some(file) => state.rom = file,
+                    None => state.rom = "null".to_string(),
+                }
             }
             Message::Connect => {
                 let ip = state.sdp.clone();
@@ -219,11 +212,13 @@ impl Application for MainMenu {
                         eprintln!("server error: {}", e);
                     }
                 });
-                state.started = Connection::Client;
+                state.connection_status = Connection::Client;
                 // }
             }
             Message::CopySDP => {
-                clipboard.write(state.sdp.to_owned());
+                if state.sdp.len() > 0 {
+                    clipboard.write(state.sdp.to_owned());
+                }
             }
             Message::GenerateSDP => {
                 let ip = state.sdp.clone();
@@ -235,59 +230,51 @@ impl Application for MainMenu {
                         eprintln!("server error: {}", e);
                     }
                 });
-                state.started = Connection::Server;
+                state.connection_status = Connection::Server;
             }
-            Message::InputChanged(value) => {
-                state.input_value = value;
-            }
-            Message::SDPChanged(value) => {
+            Message::IPChanged(value) => {
                 state.sdp = value;
             }
-            Message::SendMessage => {
-                let message = state.input_value.clone();
-                if state.started != Connection::Unspecified {
-                    tokio::spawn(async {
-                        let data_channel = DATA_CHANNEL_TX.lock().await;
-                        let data_channel = match data_channel.clone() {
-                            Some(dc) => dc,
-                            None => {
-                                return Some((Message::RtcEvent(RtcEvent::Waiting), "".to_owned()));
-                            }
-                        };
-                        match data_channel.write(&Bytes::from(message)).await {
-                            Ok(_) => {}
-                            Err(_) => {}
-                        };
-                        None
-                    });
+            Message::StartNes => {
+                if state.rom.is_empty() {
+                    return Command::none();
+                } else {
+                    let mut nes = NES_PTR.lock().unwrap();
+                    (*nes) = Nes::new(&state.rom);
+                    drop(nes);
+                    state.screen.init_nes();
+                    if !state.started {
+                        state.screen.run_nes();
+                        state.started = true;
+                    }
                 }
+            }
+            Message::StopNes => {
+                state.screen.stop_nes();
+                state.started = false;
             }
             Message::RtcEvent(event) => match event {
                 RtcEvent::Message(message) => {
-                    if state.started == Connection::Client {
+                    if state.connection_status == Connection::Client {
                         let mut nes = NES_PTR.lock().unwrap();
                         // println!("mess {}",message.len());
                         (*nes).pal_positions = message;
                         state.message_count += 1;
                         state.screen.request_redraw();
                     } else {
-                        println!("received {}", message[0]);
+                        // println!("received {}", message[0]);
                         let mut nes = NES_PTR.lock().unwrap();
                         (*nes).set_controller_state(message[0], 1);
                     }
                 }
                 RtcEvent::Connected => {
-                    if state.started == Connection::Client {
+                    if state.connection_status == Connection::Client {
                         // std::thread::spawn(move || {
                         //     let mut screen = Screen::new(true);
                         //     let mut pge = PGE::construct("C", 512, 480, 2, 2);
                         //     pge.start(&mut screen);
                         // });
                     } else {
-                        let mut nes = NES_PTR.lock().unwrap();
-                        (*nes) = Nes::new(&state.casette);
-                        drop(nes);
-                        state.screen.init_nes();
                     }
                 }
                 _ => {}
@@ -364,7 +351,7 @@ impl Application for MainMenu {
                             _ => {}
                         }
 
-                        match state.started {
+                        match state.connection_status {
                             Connection::Client => {
                                 let data = [state.key_state];
                                 tokio::spawn(async move {
@@ -390,10 +377,10 @@ impl Application for MainMenu {
                                     None
                                 });
                             }
-                            Connection::Server => {
+                            _ => {
                                 let mut nes = NES_PTR.lock().unwrap();
-                                (*nes).set_controller_state(state.key_state, 0);}
-                            _ => {}
+                                (*nes).set_controller_state(state.key_state, 0);
+                            }
                         }
                         // println!("State: {}", state.key_state);
                     }
@@ -401,7 +388,7 @@ impl Application for MainMenu {
                 }
             }
             Message::Tick(_) => {
-                match state.started {
+                match state.connection_status {
                     Connection::Client => {
                         // println!("Frames: {}", state.message_count);
                         state.message_count = 0;
@@ -443,6 +430,9 @@ impl Application for MainMenu {
                         }
                     }
                     Connection::Unspecified => {
+                        let mut nes = NES_PTR.lock().unwrap();
+                        let _data = nes.get_pal_positions().to_owned();
+                        drop(nes);
                         state.screen.request_redraw();
                     }
                 }

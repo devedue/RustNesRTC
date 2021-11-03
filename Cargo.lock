@@ -3724,6 +3724,7 @@ dependencies = [
  "rustfix",
  "serde",
  "serde_json",
+ "tinyfiledialogs",
  "tokio",
  "tokio-test",
  "webrtc",
@@ -4303,6 +4304,16 @@ checksum = "ca8a50ef2360fbd1eeb0ecd46795a87a19024eb4b53c5dc916ca1fd95fe62438"
 dependencies = [
  "libc",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "tinyfiledialogs"
+version = "3.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9545b2375cbcb7a7d70cca5e92fbaa096fd89bebd2fbc54a3da7f37d15a54e6b"
+dependencies = [
+ "cc",
+ "libc",
 ]
 
 [[package]]

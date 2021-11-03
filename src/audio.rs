@@ -7,6 +7,8 @@ use std::sync::Arc;
 
 use libc::c_void;
 
+pub static AUDIO_THREAD_ACTIVE: AtomicBool = AtomicBool::new(false);
+
 pub struct Audio {
     // For OpenAL
     al: Arc<AlApi>,
@@ -20,7 +22,6 @@ pub struct Audio {
     block_count: u32,
     block_samples: u32,
     block_memory: Vec<i16>,
-    audio_thread_active: AtomicBool,
 }
 
 impl Audio {
@@ -37,9 +38,6 @@ impl Audio {
             block_samples: 0,
             block_memory: Vec::new(),
             al: Arc::new(AlApi::load_default().unwrap()),
-
-            // audio_thread_handle: None,
-            audio_thread_active: AtomicBool::from(false),
         };
     }
 
@@ -52,7 +50,7 @@ impl Audio {
     ) -> bool {
         unsafe {
             // Initialise Sound Engine
-            self.audio_thread_active = AtomicBool::from(false);
+            // self.audio_thread_active = AtomicBool::from(false);
             self.sample_rate = sample_rate;
             self.channels = channels;
             self.block_count = blocks;
@@ -95,7 +93,7 @@ impl Audio {
                 return self.destroy_audio();
             }
 
-            self.audio_thread_active.store(true, Ordering::Relaxed);
+            AUDIO_THREAD_ACTIVE.store(true, Ordering::Relaxed);
             // self.audio_thread_handle = Some(std::thread::spawn(move || {
             //     self.audio_thread();
             // }));
@@ -104,9 +102,10 @@ impl Audio {
     }
 
     // Stop and clean up audio system
-    fn destroy_audio(&mut self) -> bool {
+    pub fn destroy_audio(&mut self) -> bool {
         unsafe {
-            self.audio_thread_active.store(false, Ordering::Relaxed);
+            println!("Destroying");
+            AUDIO_THREAD_ACTIVE.store(false, Ordering::Relaxed);
 
             // self.audio_thread_handle.unwrap();
 
@@ -131,7 +130,7 @@ impl Audio {
 
             let mut v_processed = Vec::<ALuint>::new();
 
-            while *self.audio_thread_active.get_mut() {
+            while AUDIO_THREAD_ACTIVE.load(Ordering::Relaxed) {
                 let mut state: ALint = 0;
                 let mut processed: ALint = 0;
                 self.al
@@ -165,7 +164,7 @@ impl Audio {
                     // User Process
 
                     let func_val = sound_out(0, global_time, time_step);
-                    new_sample = (func_val.clamp(-1.0,1.0) * f_max_sample) as i16;
+                    new_sample = (func_val.clamp(-1.0, 1.0) * f_max_sample) as i16;
                     self.block_memory[n as usize] = new_sample;
 
                     global_time = global_time + time_step;
