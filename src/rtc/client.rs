@@ -24,9 +24,11 @@ lazy_static! {
     static ref PENDING_CANDIDATES: Arc<Mutex<Vec<RTCIceCandidate>>> = Arc::new(Mutex::new(vec![]));
     static ref ADDRESS: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
     static ref CLIENT: Arc<Mutex<RTCClient>> = Arc::new(Mutex::new(RTCClient::new(
-        "0.0.0.0:50000".to_string(),
-        "localhost:60000".to_string(),
-        "data".to_string()
+        "0.0.0.0".to_string(),
+        "localhost".to_string(),
+        "data".to_string(),
+        50000,
+        60000
     )));
 }
 
@@ -34,17 +36,23 @@ struct RTCClient {
     answer_address: String,
     offer_address: String,
     channel: String,
+    offer_port: u16,
+    answer_port: u16
 }
 
-pub async fn start_client(_address: String) -> Result<()> {
+pub async fn start_client(address: String) -> Result<()> {
     
-    // {
-    //     let mut cl = CLIENT.lock().await;
-    //     (*cl).answer_address = address;
-    // }
+    {
+        let mut cl = CLIENT.lock().await;
+        (*cl).answer_address = address;
+    }
 
-    let offer_addr = CLIENT.lock().await.offer_address.clone();
-    let answer_addr = CLIENT.lock().await.answer_address.clone();
+    let cl = CLIENT.lock().await;
+
+    let offer_addr = format!("{}:{}", cl.offer_address, cl.offer_port);
+    let answer_addr = format!("{}:{}", cl.answer_address, cl.answer_port);
+    
+    drop(cl);
 
     {
         let mut oa = ADDRESS.lock().await;
@@ -103,6 +111,7 @@ pub async fn start_client(_address: String) -> Result<()> {
         .await;
 
     println!("Listening on {}", offer_addr);
+    println!("Connect to {}", answer_addr);
     {
         let mut pcm = PEER_CONNECTION_MUTEX.lock().await;
         *pcm = Some(Arc::clone(&remote_connection));
@@ -202,11 +211,13 @@ pub async fn start_client(_address: String) -> Result<()> {
 }
 
 impl RTCClient {
-    pub fn new(offer_address: String, answer_address: String, channel: String) -> Self {
+    pub fn new(offer_address: String, answer_address: String, channel: String, offer_port: u16, answer_port: u16) -> Self {
         RTCClient {
             offer_address,
             answer_address,
             channel,
+            offer_port,
+            answer_port
         }
     }
 

@@ -22,7 +22,5 @@ extern crate lazy_static;
 
 #[tokio::main]
 async fn main() {
-    println!("Start");
     gui::MainMenu::start_program();
-    println!("End");
 }

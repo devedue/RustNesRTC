@@ -27,20 +27,25 @@ lazy_static! {
     static ref PENDING_CANDIDATES: Arc<Mutex<Vec<RTCIceCandidate>>> = Arc::new(Mutex::new(vec![]));
     static ref ADDRESS: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
     pub static ref SERVER: Arc<Mutex<RTCServer>> = Arc::new(Mutex::new(RTCServer::new(
-        "localhost:50000".to_owned(),
-        "0.0.0.0:60000".to_owned()
+        "localhost".to_owned(),
+        "0.0.0.0".to_owned(),
+        50000,
+        60000
     )));
 }
 
-pub async fn start_server(_address: String) -> Result<()> {
+pub async fn start_server(address: String) -> Result<()> {
+    {
+        let mut cl = SERVER.lock().await;
+        (*cl).offer_address = address;
+    }
 
-    // {
-    //     let mut cl = SERVER.lock().await;
-    //     (*cl).offer_address = address;
-    // }
+    let se = SERVER.lock().await;
 
-    let offer_addr = SERVER.lock().await.offer_address.to_owned();
-    let answer_addr = SERVER.lock().await.answer_address.to_owned();
+    let offer_addr = format!("{}:{}", se.offer_address, se.offer_port);
+    let answer_addr = format!("{}:{}", se.answer_address, se.answer_port);
+    
+    drop(se);
 
     {
         let mut address_ref = ADDRESS.lock().await;
@@ -96,7 +101,8 @@ pub async fn start_server(_address: String) -> Result<()> {
         }))
         .await;
 
-    println!("Listening on http://{}", answer_addr);
+    println!("Listening on {}", answer_addr);
+    println!("Connect to {}", offer_addr);
     {
         let mut pcm = PEER_CONNECTION_MUTEX.lock().await;
         *pcm = Some(Arc::clone(&peer_connection));
@@ -104,7 +110,7 @@ pub async fn start_server(_address: String) -> Result<()> {
 
     tokio::spawn(async move {
         let addr = SocketAddr::from_str(&answer_addr).unwrap();
-        println!("Started {}", answer_addr);
+        
         let service = make_service_fn(|_| async {
             Ok::<_, hyper::Error>(service_fn(RTCServer::remote_handler))
         });
@@ -163,8 +169,6 @@ pub async fn start_server(_address: String) -> Result<()> {
         }))
         .await;
 
-    println!("Pause till active");
-
     Ok(())
 }
 
@@ -172,13 +176,17 @@ pub async fn start_server(_address: String) -> Result<()> {
 pub struct RTCServer {
     offer_address: String,
     answer_address: String,
+    offer_port: u16,
+    answer_port: u16
 }
 
 impl RTCServer {
-    pub fn new(offer_address: String, answer_address: String) -> Self {
+    pub fn new(offer_address: String, answer_address: String, offer_port: u16, answer_port: u16) -> Self {
         RTCServer {
-            offer_address: offer_address.to_owned(),
-            answer_address: answer_address.to_owned(),
+            offer_address,
+            answer_address,
+            offer_port,
+            answer_port
         }
     }
 

@@ -13,7 +13,6 @@ use iced::{
     Element, HorizontalAlignment, Length, Row, Settings, Subscription, Text, TextInput,
 };
 use std::time::{Duration, Instant};
-use tinyfiledialogs::open_file_dialog;
 
 use iced_aw::{modal, Card, Modal};
 
@@ -121,6 +120,7 @@ impl Application for MainMenu {
                 )
                 .padding(5),
             )
+            // .push(Text::new("My IP: " + local_ip_address::local_ip().unwrap()))
             .push(Button::new(&mut state.bt_copy, Text::new("Copy")).on_press(Message::CopySDP))
             .push(
                 Button::new(&mut state.bt_generate, Text::new("Server"))
@@ -197,23 +197,27 @@ impl Application for MainMenu {
         let mut state = &mut self.state;
         match message {
             Message::BrowseRom => {
-                match tinyfiledialogs::open_file_dialog("Open", "password.txt", None) {
+                match tinyfiledialogs::open_file_dialog(
+                    "Open",
+                    "password.txt",
+                    Some((&["*.nes"], "NES Rom")),
+                ) {
                     Some(file) => state.rom = file,
                     None => state.rom = "null".to_string(),
                 }
             }
             Message::Connect => {
                 let ip = state.sdp.clone();
-                // if ip.is_empty() {
-                //     state.modal_state.show(true);
-                // } else {
-                tokio::spawn(async {
-                    if let Err(e) = start_client(ip).await {
-                        eprintln!("server error: {}", e);
-                    }
-                });
-                state.connection_status = Connection::Client;
-                // }
+                if ip.is_empty() {
+                    state.modal_state.show(true);
+                } else {
+                    tokio::spawn(async {
+                        if let Err(e) = start_client(ip).await {
+                            eprintln!("server error: {}", e);
+                        }
+                    });
+                    state.connection_status = Connection::Client;
+                }
             }
             Message::CopySDP => {
                 if state.sdp.len() > 0 {
@@ -222,15 +226,16 @@ impl Application for MainMenu {
             }
             Message::GenerateSDP => {
                 let ip = state.sdp.clone();
-                // if ip.is_empty() {
-                //     state.modal_state.show(true);
-                // } else {
-                tokio::spawn(async {
-                    if let Err(e) = start_server(ip).await {
-                        eprintln!("server error: {}", e);
-                    }
-                });
-                state.connection_status = Connection::Server;
+                if ip.is_empty() {
+                    state.modal_state.show(true);
+                } else {
+                    tokio::spawn(async {
+                        if let Err(e) = start_server(ip).await {
+                            eprintln!("server error: {}", e);
+                        }
+                    });
+                    state.connection_status = Connection::Server;
+                }
             }
             Message::IPChanged(value) => {
                 state.sdp = value;

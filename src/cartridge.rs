@@ -72,8 +72,6 @@ impl Cartridge {
         let mut chr_banks = 0;
         let mut v_chr_memory: Vec<u8> = Vec::new();
 
-        println!("Scanning cartridge {}", file_type);
-
         match file_type {
             0 => {}
             1 => {
