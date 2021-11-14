@@ -7,13 +7,14 @@ NES emulator in rust with multiplayer capabilities using WebRTC. Created using a
     - [X] Browse ROM
     - [X] Connection over LAN (Port 50000 for server and 60000 for client)
     - [X] Start/Stop emulation
+    - [ ] Scaling
 - [ ] CPU
     - [x] Official Opcodes
     - [ ] Unofficial Opcodes
 - [x] PPU
 - [ ] Mapper
     - [X] Mapper000
-    - Others
+    - [ ] Others
 - [ ] APU (OpenAL)
     - [x] Pulse Wave1
     - [x] Pulse Wave2

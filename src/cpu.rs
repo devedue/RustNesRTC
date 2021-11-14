@@ -1,5 +1,4 @@
 use crate::bus::*;
-use indexmap::IndexMap;
 
 pub enum FLAGS6502 {
     C = (1 << 0), // Carry Bit
@@ -49,7 +48,6 @@ pub struct Cpu {
     pub opcode: u8,
     pub cycles: u8,
     pub lookup: Vec<Instruction>,
-    pub map_asm: IndexMap<u16, String>,
 }
 
 #[allow(non_snake_case)]
@@ -1078,8 +1076,7 @@ impl Cpu {
                 I::new_i("SBC", Self::SBC, Self::ABX, 4),
                 I::new_i("INC", Self::INC, Self::ABX, 7),
                 I::new_i("???", Self::XXX, Self::IMP, 7),
-            ],
-            map_asm: IndexMap::new(),
+            ]
         };
     }
 
