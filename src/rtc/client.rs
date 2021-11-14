@@ -1,3 +1,5 @@
+use crate::rtc::AUDIO_CHANNEL_RX;
+use crate::rtc::AUDIO_CHANNEL_TX;
 use crate::rtc::DATA_CHANNEL_RX;
 use crate::rtc::DATA_CHANNEL_TX;
 use anyhow::Result;
@@ -12,6 +14,7 @@ use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
+use webrtc::data::data_channel::data_channel_init::RTCDataChannelInit;
 use webrtc::peer::configuration::RTCConfiguration;
 use webrtc::peer::ice::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
 use webrtc::peer::ice::ice_server::RTCIceServer;
@@ -37,11 +40,10 @@ struct RTCClient {
     offer_address: String,
     channel: String,
     offer_port: u16,
-    answer_port: u16
+    answer_port: u16,
 }
 
 pub async fn start_client(address: String) -> Result<()> {
-    
     {
         let mut cl = CLIENT.lock().await;
         (*cl).answer_address = address;
@@ -51,7 +53,6 @@ pub async fn start_client(address: String) -> Result<()> {
 
     let offer_addr = format!("{}:{}", cl.offer_address, cl.offer_port);
     let answer_addr = format!("{}:{}", cl.answer_address, cl.answer_port);
-    
     drop(cl);
 
     {
@@ -130,10 +131,6 @@ pub async fn start_client(address: String) -> Result<()> {
         }
     });
 
-    let data_channel = remote_connection
-        .create_data_channel(&CLIENT.lock().await.channel.clone(), None)
-        .await?;
-
     remote_connection
         .on_peer_connection_state_change(Box::new(move |s: RTCPeerConnectionState| {
             println!("Peer Connection State has changed: {}", s);
@@ -150,29 +147,74 @@ pub async fn start_client(address: String) -> Result<()> {
         }))
         .await;
 
+    let data_channel = remote_connection
+        .create_data_channel(
+            &CLIENT.lock().await.channel.clone(),
+            Some(RTCDataChannelInit {
+                id: Some(1),
+                max_packet_life_time: None,
+                max_retransmits: None,
+                negotiated: Some(true),
+                ordered: None,
+                protocol: None,
+            }),
+        )
+        .await?;
     // Register channel opening handling
     let d1 = Arc::clone(&data_channel);
-    data_channel.on_open(Box::new(move || {
-        println!("Data channel '{}'-'{}' open. Random messages will now be sent to any connected DataChannels every second", d1.label(), d1.id());
+    data_channel
+        .on_open(Box::new(move || {
+            let d2 = Arc::clone(&d1);
+            Box::pin(async move {
+                let raw = match d2.detach().await {
+                    Ok(raw) => raw,
+                    Err(err) => {
+                        println!("data channel detach got err: {}", err);
+                        return;
+                    }
+                };
+                let mut server = DATA_CHANNEL_RX.lock().await;
+                *server = Some(Arc::clone(&raw));
+                let mut server = DATA_CHANNEL_TX.lock().await;
+                *server = Some(Arc::clone(&raw));
+                println!("Set data channel");
+            })
+        }))
+        .await;
 
-        let d2 = Arc::clone(&d1);
-        Box::pin(async move {
-            let raw = match d2.detach().await {
-                Ok(raw) => raw,
-                Err(err) => {
-                    println!("data channel detach got err: {}", err);
-                    return;
-                }
-            };
-
-            println!("Trying to set data channel");
-            let mut server = DATA_CHANNEL_RX.lock().await;
-            *server = Some(Arc::clone(&raw));
-            let mut server = DATA_CHANNEL_TX.lock().await;
-            *server = Some(Arc::clone(&raw));
-            println!("Set data channel");
-        })
-    })).await;
+    let audio_channel = remote_connection
+        .create_data_channel(
+            "audio",
+            Some(RTCDataChannelInit {
+                id: Some(2),
+                max_packet_life_time: None,
+                max_retransmits: None,
+                negotiated: Some(true),
+                ordered: None,
+                protocol: None,
+            }),
+        )
+        .await?;
+    let a1 = Arc::clone(&audio_channel);
+    audio_channel
+        .on_open(Box::new(move || {
+            let a2 = Arc::clone(&a1);
+            Box::pin(async move {
+                let raw = match a2.detach().await {
+                    Ok(raw) => raw,
+                    Err(err) => {
+                        println!("audio channel detach got err: {}", err);
+                        return;
+                    }
+                };
+                let mut server = AUDIO_CHANNEL_RX.lock().await;
+                *server = Some(Arc::clone(&raw));
+                let mut server = AUDIO_CHANNEL_TX.lock().await;
+                *server = Some(Arc::clone(&raw));
+                println!("Set audio channel");
+            })
+        }))
+        .await;
 
     // Create an offer to send to the other process
     let offer = remote_connection.create_offer(None).await?;
@@ -211,13 +253,19 @@ pub async fn start_client(address: String) -> Result<()> {
 }
 
 impl RTCClient {
-    pub fn new(offer_address: String, answer_address: String, channel: String, offer_port: u16, answer_port: u16) -> Self {
+    pub fn new(
+        offer_address: String,
+        answer_address: String,
+        channel: String,
+        offer_port: u16,
+        answer_port: u16,
+    ) -> Self {
         RTCClient {
             offer_address,
             answer_address,
             channel,
             offer_port,
-            answer_port
+            answer_port,
         }
     }
 

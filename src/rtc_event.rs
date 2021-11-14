@@ -1,7 +1,7 @@
 use crate::gui::Message;
+use crate::nes::SPRITE_ARR_SIZE;
 use crate::rtc::DATA_CHANNEL_RX;
 use iced_futures::futures;
-use crate::nes::SPRITE_ARR_SIZE;
 const MESSAGE_SIZE: usize = SPRITE_ARR_SIZE;
 
 #[derive(Debug, Clone)]
@@ -46,6 +46,7 @@ where
                                 ));
                             }
                             None => {
+                                // println!("No Data Channel");s
                                 std::thread::sleep(std::time::Duration::from_secs(1));
                                 return Some((
                                     Message::RtcEvent(RtcEvent::Waiting),
@@ -57,8 +58,11 @@ where
                     RtcEvent::Message(_) | RtcEvent::Connected => {
                         let data_channel = DATA_CHANNEL_RX.lock().await;
                         let data_channel = match data_channel.clone() {
-                            Some(dc) => dc,
+                            Some(dc) => {
+                                dc
+                            }
                             None => {
+                                // println!("No Data Chsannel");
                                 std::thread::sleep(std::time::Duration::from_secs(1));
                                 return Some((
                                     Message::RtcEvent(RtcEvent::Waiting),
@@ -66,6 +70,7 @@ where
                                 ));
                             }
                         };
+
                         match data_channel.read(&mut buffer).await {
                             Ok(..) => {
                                 return Some((

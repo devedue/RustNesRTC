@@ -1,15 +1,16 @@
-use std::thread::JoinHandle;
-use crate::audio::AUDIO_THREAD_ACTIVE;
-use std::sync::atomic::{Ordering};
 use crate::audio::Audio;
+use crate::audio::AUDIO_THREAD_ACTIVE;
 use crate::cpu::Cpu;
 use crate::gui::Message;
 use crate::nes::NES_PTR;
+use crate::nes::SPRITE_ARR_SIZE;
 use iced::canvas::{self, Cache, Canvas, Cursor, Frame, Geometry};
 use iced::Element;
 use iced::Length;
 use iced::Rectangle;
 use iced_native::{Color, Point, Size};
+use std::sync::atomic::Ordering;
+use tokio::task::JoinHandle;
 
 extern crate redis;
 
@@ -23,7 +24,7 @@ pub struct Screen {
     state: ScreenState,
     client: bool,
     pal_screen: [Color; 64],
-    audio_thread: Option<JoinHandle<()>>
+    audio_thread: Option<JoinHandle<()>>,
 }
 
 impl Default for Screen {
@@ -106,7 +107,7 @@ impl Screen {
                 Color::from_rgb8(0, 0, 0),
                 Color::from_rgb8(0, 0, 0),
             ],
-            audio_thread: None
+            audio_thread: None,
         }
     }
 
@@ -125,13 +126,13 @@ impl Screen {
         nes.cpu.bus.set_sample_frequency(44100);
     }
 
-    pub fn run_nes(&mut self) {
-        self.audio_thread = Some(std::thread::spawn(move || {
-            let mut audio = Audio::new();
+    pub fn run_nes(&mut self, client: bool) {
+        self.audio_thread = Some(tokio::spawn(async move {
+            let mut audio = Audio::new(client);
             audio.initialise_audio(44100, 1, 8, 512);
             // audio.set_user_synth_function(sound_out);
             println!("Started");
-            audio.audio_thread();
+            audio.run_thread().await;
             println!("Stopped");
             audio.destroy_audio();
         }));
@@ -139,7 +140,7 @@ impl Screen {
 
     pub fn stop_nes(&mut self) {
         AUDIO_THREAD_ACTIVE.store(false, Ordering::Relaxed);
-        self.audio_thread.take().map(JoinHandle::join);
+        // self.audio_thread.take().join();
     }
 
     pub fn view(&mut self) -> Element<Message> {
@@ -157,7 +158,7 @@ impl Screen {
 impl canvas::Program<Message> for Screen {
     fn draw(&self, bounds: Rectangle, _cursor: Cursor) -> Vec<Geometry> {
         let nes = NES_PTR.lock().unwrap();
-        if nes.pal_positions.len() < 61440 {
+        if nes.pal_positions.len() < SPRITE_ARR_SIZE {
             // println!("No {}", nes.pal_positions.len());
             return vec![];
         }

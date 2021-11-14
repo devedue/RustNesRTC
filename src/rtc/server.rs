@@ -1,3 +1,5 @@
+use crate::rtc::AUDIO_CHANNEL_RX;
+use crate::rtc::AUDIO_CHANNEL_TX;
 use crate::rtc::DATA_CHANNEL_RX;
 use crate::rtc::DATA_CHANNEL_TX;
 use anyhow::Result;
@@ -13,6 +15,7 @@ use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
+use webrtc::data::data_channel::data_channel_init::RTCDataChannelInit;
 use webrtc::data::data_channel::RTCDataChannel;
 use webrtc::peer::configuration::RTCConfiguration;
 use webrtc::peer::ice::ice_candidate::{RTCIceCandidate, RTCIceCandidateInit};
@@ -44,7 +47,6 @@ pub async fn start_server(address: String) -> Result<()> {
 
     let offer_addr = format!("{}:{}", se.offer_address, se.offer_port);
     let answer_addr = format!("{}:{}", se.answer_address, se.answer_port);
-    
     drop(se);
 
     {
@@ -110,7 +112,6 @@ pub async fn start_server(address: String) -> Result<()> {
 
     tokio::spawn(async move {
         let addr = SocketAddr::from_str(&answer_addr).unwrap();
-        
         let service = make_service_fn(|_| async {
             Ok::<_, hyper::Error>(service_fn(RTCServer::remote_handler))
         });
@@ -134,40 +135,117 @@ pub async fn start_server(address: String) -> Result<()> {
         }))
         .await;
 
-    peer_connection
-        .on_data_channel(Box::new(move |d: Arc<RTCDataChannel>| {
-            let d_label = d.label().to_owned();
-            let d_id = d.id();
-            println!("New DataChannel {} {}", d_label, d_id);
-
+    let data_channel: Arc<RTCDataChannel> = peer_connection
+        .create_data_channel(
+            "data",
+            Some(RTCDataChannelInit {
+                id: Some(1),
+                max_packet_life_time: None,
+                max_retransmits: None,
+                negotiated: Some(true),
+                ordered: None,
+                protocol: None,
+            }),
+        )
+        .await?;
+    // Register channel opening handling
+    let d1 = Arc::clone(&data_channel);
+    data_channel
+        .on_open(Box::new(move || {
+            let d2 = Arc::clone(&d1);
             Box::pin(async move {
-                // Register channel opening handling
-                let d2 = Arc::clone(&d);
-                let d_label2 = d_label.clone();
-                let d_id2 = d_id;
-                d.on_open(Box::new(move || {
-                    println!("Data channel '{}'-'{}' open. ", d_label2, d_id2);
-                    Box::pin(async move {
-                        let raw = match d2.detach().await {
-                            Ok(raw) => raw,
-                            Err(err) => {
-                                println!("data channel detach got err: {}", err);
-                                return;
-                            }
-                        };
-
-                        println!("Trying to set data channel");
-                        let mut server = DATA_CHANNEL_RX.lock().await;
-                        *server = Some(Arc::clone(&raw));
-                        let mut server = DATA_CHANNEL_TX.lock().await;
-                        *server = Some(Arc::clone(&raw));
-                        println!("Set data channel");
-                    })
-                }))
-                .await;
+                let raw = match d2.detach().await {
+                    Ok(raw) => raw,
+                    Err(err) => {
+                        println!("data channel detach got err: {}", err);
+                        return;
+                    }
+                };
+                let mut server = DATA_CHANNEL_RX.lock().await;
+                *server = Some(Arc::clone(&raw));
+                let mut server = DATA_CHANNEL_TX.lock().await;
+                *server = Some(Arc::clone(&raw));
+                println!("Set data channel");
             })
         }))
         .await;
+
+    let audio_channel: Arc<RTCDataChannel> = peer_connection
+        .create_data_channel(
+            "audio",
+            Some(RTCDataChannelInit {
+                id: Some(2),
+                max_packet_life_time: None,
+                max_retransmits: None,
+                negotiated: Some(true),
+                ordered: None,
+                protocol: None,
+            }),
+        )
+        .await?;
+    let a1 = Arc::clone(&audio_channel);
+    audio_channel
+        .on_open(Box::new(move || {
+            let a2 = Arc::clone(&a1);
+            Box::pin(async move {
+                let raw = match a2.detach().await {
+                    Ok(raw) => raw,
+                    Err(err) => {
+                        println!("audio channel detach got err: {}", err);
+                        return;
+                    }
+                };
+                let mut server = AUDIO_CHANNEL_RX.lock().await;
+                *server = Some(Arc::clone(&raw));
+                let mut server = AUDIO_CHANNEL_TX.lock().await;
+                *server = Some(Arc::clone(&raw));
+                println!("Set audio channel");
+            })
+        }))
+        .await;
+
+    // peer_connection
+    //     .on_data_channel(Box::new(move |d: Arc<RTCDataChannel>| {
+    //         let d_label = d.label().to_owned();
+    //         let d_id = d.id();
+    //         println!("New DataChannel {} {}", d_label, d_id);
+
+    //         Box::pin(async move {
+    //             // Register channel opening handling
+    //             let d2 = Arc::clone(&d);
+    //             let d_label2 = d_label.clone();
+    //             let d_id2 = d_id;
+    //             d.on_open(Box::new(move || {
+    //                 println!("Data channel '{}'-'{}' open. ", d_label2, d_id2);
+    //                 Box::pin(async move {
+    //                     let raw = match d2.detach().await {
+    //                         Ok(raw) => raw,
+    //                         Err(err) => {
+    //                             println!("data channel detach got err: {}", err);
+    //                             return;
+    //                         }
+    //                     };
+
+    //                     if "data".eq(&d_label2.to_owned()) {
+    //                         println!("Got data channel");
+    //                         let mut server = DATA_CHANNEL_RX.lock().await;
+    //                         *server = Some(Arc::clone(&raw));
+    //                         let mut server = DATA_CHANNEL_TX.lock().await;
+    //                         *server = Some(Arc::clone(&raw));
+    //                     }
+    //                     if "audio".eq(&d_label2.to_owned()) {
+    //                         println!("Got audio channel");
+    //                         let mut server = AUDIO_CHANNEL_RX.lock().await;
+    //                         *server = Some(Arc::clone(&raw));
+    //                         let mut server = AUDIO_CHANNEL_TX.lock().await;
+    //                         *server = Some(Arc::clone(&raw));
+    //                     }
+    //                 })
+    //             }))
+    //             .await;
+    //         })
+    //     }))
+    //     .await;
 
     Ok(())
 }
@@ -177,16 +255,21 @@ pub struct RTCServer {
     offer_address: String,
     answer_address: String,
     offer_port: u16,
-    answer_port: u16
+    answer_port: u16,
 }
 
 impl RTCServer {
-    pub fn new(offer_address: String, answer_address: String, offer_port: u16, answer_port: u16) -> Self {
+    pub fn new(
+        offer_address: String,
+        answer_address: String,
+        offer_port: u16,
+        answer_port: u16,
+    ) -> Self {
         RTCServer {
             offer_address,
             answer_address,
             offer_port,
-            answer_port
+            answer_port,
         }
     }
 

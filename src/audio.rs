@@ -1,9 +1,14 @@
 use crate::nes::sound_out;
+use crate::rtc::AUDIO_CHANNEL_RX;
+use crate::rtc::AUDIO_CHANNEL_TX;
 use alto::sys::ALint;
 use alto::sys::{ALCcontext, ALCdevice, ALshort, ALuint, AlApi};
+use hyper::body::Bytes;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 // use std::thread::JoinHandle;
+
+use byteorder::{BigEndian, ByteOrder};
 
 use libc::c_void;
 
@@ -15,29 +20,31 @@ pub struct Audio {
     available_buffers: Vec<ALuint>,
     buffers: Vec<ALuint>,
     source: Option<ALuint>,
-    device: Arc<*mut ALCdevice>,
-    context: Arc<*mut ALCcontext>,
+    device: Option<Arc<ALCdevice>>,
+    context: Option<Arc<ALCcontext>>,
     sample_rate: u32,
     channels: u32,
     block_count: u32,
     block_samples: u32,
     block_memory: Vec<i16>,
+    client: bool,
 }
 
 impl Audio {
-    pub fn new() -> Self {
+    pub fn new(client: bool) -> Self {
         return Audio {
             available_buffers: Vec::new(),
             buffers: Vec::new(),
             source: None,
-            device: Arc::new(std::ptr::null_mut()),
-            context: Arc::new(std::ptr::null_mut()),
+            device: None,
+            context: None,
             sample_rate: 44100,
             channels: 0,
             block_count: 0,
             block_samples: 0,
             block_memory: Vec::new(),
             al: Arc::new(AlApi::load_default().unwrap()),
+            client,
         };
     }
 
@@ -60,12 +67,10 @@ impl Audio {
             // Open the device and create the context
             let new_device = self.al.alcOpenDevice(std::ptr::null());
             if new_device != std::ptr::null_mut() {
-                self.device = Arc::new(new_device);
-                self.context = Arc::new(
-                    self.al
-                        .alcCreateContext(*self.device.as_ref(), std::ptr::null()),
-                );
-                self.al.alcMakeContextCurrent(*self.context.as_ref());
+                self.device = Some(Arc::from_raw(new_device));
+                let context = self.al.alcCreateContext(new_device, std::ptr::null());
+                self.context = Some(Arc::from_raw(context));
+                self.al.alcMakeContextCurrent(context);
             } else {
                 return self.destroy_audio();
             }
@@ -115,13 +120,111 @@ impl Audio {
             self.al.alDeleteSources(1, &self.source.unwrap());
 
             self.al.alcMakeContextCurrent(std::ptr::null_mut());
-            self.al.alcDestroyContext(*self.context.as_ref());
-            self.al.alcCloseDevice(*self.device.as_ref());
+            let context: Arc<ALCcontext> = match &self.context {
+                Some(con) => Arc::clone(con),
+                None => {
+                    return false;
+                }
+            };
+            let device = match &self.device {
+                Some(device) => Arc::clone(device),
+                None => {
+                    return false;
+                }
+            };
+
+            let context = Arc::into_raw(context) as *mut ALCcontext;
+            let device = Arc::into_raw(device) as *mut ALCdevice;
+
+            self.al.alcDestroyContext(context);
+            self.al.alcCloseDevice(device);
             return false;
         }
     }
 
-    pub fn audio_thread(&mut self) {
+    pub async fn run_thread(&mut self) {
+        if self.client {
+            self.client_audio_thread().await;
+        } else {
+            self.audio_thread().await;
+        }
+    }
+
+    pub async fn client_audio_thread(&mut self) {
+        unsafe {
+            let mut v_processed = Vec::<ALuint>::new();
+
+            while AUDIO_THREAD_ACTIVE.load(Ordering::Relaxed) {
+                let mut state: ALint = 0;
+                let mut processed: ALint = 0;
+                self.al
+                    .alGetSourcei(self.source.unwrap(), alto::sys::AL_SOURCE_STATE, &mut state);
+                self.al.alGetSourcei(
+                    self.source.unwrap(),
+                    alto::sys::AL_BUFFERS_PROCESSED,
+                    &mut processed,
+                );
+
+                // Add processed buffers to our queue
+                v_processed.resize(processed as usize, 0);
+                self.al.alSourceUnqueueBuffers(
+                    self.source.unwrap(),
+                    processed,
+                    v_processed.as_mut_ptr(),
+                );
+
+                for i in 0..v_processed.len() {
+                    self.available_buffers.push(v_processed[i as usize]);
+                }
+
+                // Wait until there is a free buffer (ewww)
+                if self.available_buffers.len() == 0 {
+                    continue;
+                }
+
+                let mut buf = [0; 1024];
+                let mut result = [0_i16; 512];
+                let data_channel = AUDIO_CHANNEL_RX.lock().await;
+                if let Some(data_channel) = data_channel.clone() {
+                    match data_channel.read(&mut buf).await {
+                        Ok(..) => {
+                            println!("audio {}", buf.len());
+                            BigEndian::read_i16_into(&mut buf, &mut result);
+                            self.block_memory.extend(result);
+                        }
+                        Err(_) => {
+                            AUDIO_THREAD_ACTIVE.store(false, Ordering::Relaxed);
+                            return ();
+                        }
+                    };
+                } else {
+                    println!("No audio channel");
+                }
+
+                let last = self.available_buffers.pop().unwrap();
+
+                // Fill OpenAL data buffer
+                self.al.alBufferData(
+                    last,
+                    alto::sys::AL_FORMAT_MONO16,
+                    self.block_memory.as_ptr() as *const c_void,
+                    (2 * self.block_samples) as i32,
+                    44100,
+                );
+                // Add it to the OpenAL queue
+                self.al
+                    .alSourceQueueBuffers(self.source.unwrap(), self.channels as i32, &last);
+                // Remove it from ours
+
+                // If it's not playing for some reason, change that
+                if state != alto::sys::AL_PLAYING {
+                    self.al.alSourcePlay(self.source.unwrap());
+                }
+            }
+        }
+    }
+
+    pub async fn audio_thread(&mut self) {
         unsafe {
             let mut global_time = 0.0;
             let time_step: f32 = 1.0 / (self.sample_rate as f32);
@@ -130,6 +233,7 @@ impl Audio {
 
             let mut v_processed = Vec::<ALuint>::new();
 
+            let data_channel = AUDIO_CHANNEL_TX.lock().await;
             while AUDIO_THREAD_ACTIVE.load(Ordering::Relaxed) {
                 let mut state: ALint = 0;
                 let mut processed: ALint = 0;
@@ -161,14 +265,24 @@ impl Audio {
                 let mut new_sample: ALshort;
 
                 for n in 0..self.block_samples {
-                    // User Process
-
                     let func_val = sound_out(0, global_time, time_step);
                     new_sample = (func_val.clamp(-1.0, 1.0) * f_max_sample) as i16;
                     self.block_memory[n as usize] = new_sample;
 
                     global_time = global_time + time_step;
                 }
+                let mut buf = [0; 1024];
+                BigEndian::write_i16_into(&self.block_memory, &mut buf);
+                // if let Some(data_channel) = data_channel.clone() {
+                //     match data_channel.write(&Bytes::copy_from_slice(&buf)).await {
+                //         Ok(_) => {
+                //             // println!("A");
+                //         }
+                //         Err(err) => {
+                //             println!("Not Sent, {}", err);
+                //         }
+                //     };
+                // };
 
                 let last = self.available_buffers.pop().unwrap();
 
@@ -190,6 +304,7 @@ impl Audio {
                     self.al.alSourcePlay(self.source.unwrap());
                 }
             }
+            drop(data_channel);
         }
     }
 }

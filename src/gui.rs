@@ -1,5 +1,6 @@
 use crate::nes::Nes;
 use crate::nes::NES_PTR;
+use crate::nes::SPRITE_ARR_SIZE;
 use crate::rtc::client::start_client;
 use crate::rtc::server::start_server;
 use crate::rtc::DATA_CHANNEL_TX;
@@ -134,7 +135,13 @@ impl Application for MainMenu {
             .push(
                 Button::new(&mut state.bt_browse, Text::new("Browse")).on_press(Message::BrowseRom),
             )
-            .push(Button::new(&mut state.bt_start, Text::new("Start")).on_press(Message::StartNes))
+            .push(
+                Button::new(
+                    &mut state.bt_start,
+                    Text::new(if state.started { "Restart" } else { "Start" }),
+                )
+                .on_press(Message::StartNes),
+            )
             .push(Button::new(&mut state.bt_stop, Text::new("Stop")).on_press(Message::StopNes))
             .push(Text::new(&state.rom));
 
@@ -241,15 +248,19 @@ impl Application for MainMenu {
                 state.sdp = value;
             }
             Message::StartNes => {
-                if state.rom.is_empty() {
+                if state.rom.is_empty() && state.connection_status == Connection::Server {
                     return Command::none();
                 } else {
                     let mut nes = NES_PTR.lock().unwrap();
                     (*nes) = Nes::new(&state.rom);
                     drop(nes);
-                    state.screen.init_nes();
+                    if state.connection_status != Connection::Client {
+                        state.screen.init_nes();
+                    }
                     if !state.started {
-                        state.screen.run_nes();
+                        state
+                            .screen
+                            .run_nes(state.connection_status == Connection::Client);
                         state.started = true;
                     }
                 }
@@ -274,11 +285,6 @@ impl Application for MainMenu {
                 }
                 RtcEvent::Connected => {
                     if state.connection_status == Connection::Client {
-                        // std::thread::spawn(move || {
-                        //     let mut screen = Screen::new(true);
-                        //     let mut pge = PGE::construct("C", 512, 480, 2, 2);
-                        //     pge.start(&mut screen);
-                        // });
                     } else {
                     }
                 }
@@ -395,7 +401,7 @@ impl Application for MainMenu {
             Message::Tick(_) => {
                 match state.connection_status {
                     Connection::Client => {
-                        // println!("Frames: {}", state.message_count);
+                        println!("Frames: {}", state.message_count);
                         state.message_count = 0;
                         // state.screen.request_redraw();
                     }
@@ -404,13 +410,16 @@ impl Application for MainMenu {
                         let data = nes.get_pal_positions().to_owned();
                         drop(nes);
                         state.screen.request_redraw();
-                        if data.len() >= 61440 {
+                        if data.len() >= SPRITE_ARR_SIZE {
                             tokio::spawn(async move {
+                                // println!("REQUEST DATA LOCK");
                                 let data_channel = DATA_CHANNEL_TX.lock().await;
+                                // println!("DATA LOCK");
                                 // println!("should send");
                                 let data_channel = match data_channel.clone() {
                                     Some(dc) => dc,
                                     None => {
+                                        // println!("Nos Data");
                                         return Some((
                                             Message::RtcEvent(RtcEvent::Waiting),
                                             "".to_owned(),
@@ -419,12 +428,12 @@ impl Application for MainMenu {
                                 };
                                 match data_channel
                                     .write(&Bytes::copy_from_slice(
-                                        data[0..61440].try_into().unwrap(),
+                                        data[0..SPRITE_ARR_SIZE].try_into().unwrap(),
                                     ))
                                     .await
                                 {
                                     Ok(_) => {
-                                        // println!("Sent");
+                                        // println!("D");
                                     }
                                     Err(err) => {
                                         println!("Not Sent, {}", err);
@@ -432,6 +441,8 @@ impl Application for MainMenu {
                                 };
                                 None
                             });
+                        } else {
+                            println!("Invalid Length");
                         }
                     }
                     Connection::Unspecified => {

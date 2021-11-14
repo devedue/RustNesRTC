@@ -45,7 +45,17 @@ impl Cartridge {
     pub fn new(file_name: &str) -> Self {
         let mut header: CartHeader = Default::default();
 
-        let mut file = File::open(file_name).unwrap();
+        let mut file = match File::open(file_name) {
+            Ok(f) => f,
+            Err(_) => {
+                return Cartridge {
+                    v_prg_memory: vec![],
+                    v_chr_memory: vec![],
+                    p_mapper: Mapper000::new(0, 0),
+                    mirror: Mirror::default(),
+                };
+            }
+        };
         let _ = file.read_exact(&mut header.name);
         header.prg_rom_chunks = file.read_u8().unwrap();
         header.chr_rom_chunks = file.read_u8().unwrap();
